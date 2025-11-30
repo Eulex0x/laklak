@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
 Market Data Collector for InfluxDB
 
