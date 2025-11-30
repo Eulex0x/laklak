@@ -21,11 +21,11 @@ class BybitKline:
             while current_end > start_timestamp:
                 url = f"{BybitKline.BASE_URL}/v5/market/kline"
                 params = {
-                    "category": "inverse",
-                    "symbol": f"{currency}USDT",
+                    "category": "linear",
+                    "symbol": currency,
                     "start": start_timestamp,
                     "end": current_end,
-                    "interval": resolution,
+                    "interval": str(resolution),
                     "limit": 1000
                 }
                 
@@ -34,7 +34,7 @@ class BybitKline:
                 result = response.json()
                 
                 if "result" not in result or "list" not in result["result"]:
-                    print(f"No volatility index data returned for {currency}")
+                    print(f"No kline data returned for {currency}")
                     break
                 
                 # Parse the candle data
@@ -57,7 +57,7 @@ class BybitKline:
             df = pd.DataFrame(all_data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'turnover'])
             
             # Convert timestamp to datetime
-
+            df['timestamp'] = pd.to_numeric(df['timestamp'])
             df['time'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)            
             # Drop the timestamp column and reorder
             df = df[['time', 'open', 'high', 'low', 'close', 'volume', 'turnover']]

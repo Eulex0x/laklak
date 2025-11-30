@@ -38,7 +38,7 @@ RESOLUTION_IV = int(os.getenv("RESOLUTION_IV", 60)) * 60  # Convert to seconds
 # Logging Configuration
 # ============================================================================
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-LOG_FILE = os.getenv("LOG_FILE", "/var/log/market_data/collector.log")
+LOG_FILE = os.getenv("LOG_FILE", "logs/collector.log")
 
 
 def get_config():

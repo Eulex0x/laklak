@@ -143,8 +143,8 @@ class DataCollector:
             # Fetch the last 2 hours to ensure we get the most recent closed candle
             df = self.bybit.fetch_historical_kline(
                 currency=symbol,
-                days=1,
-                resolution=60  # 1 hour
+                days=get_config()["DAYS"],
+                resolution=get_config()["RESOLUTION_KLINE"]  # 1 hour
             )
             
             if df.empty:
