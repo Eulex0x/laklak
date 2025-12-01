@@ -108,21 +108,43 @@ class DataCollector:
     
     def load_coins(self, coins_file: str = "coins.txt") -> list:
         """
-        Load the list of coins from a file.
+        Load the list of coins from a file with exchange specifications.
+        
+        Format: SYMBOL [exchanges]
+        Examples:
+            BTCUSDT bybit+deribit
+            ETHUSDT bybit+deribit
+            SOLUSDT bybit
         
         Args:
             coins_file (str): Path to the coins file
             
         Returns:
-            list: List of coin symbols
+            list: List of tuples (symbol, exchanges_list)
         """
         if not os.path.exists(coins_file):
             self.logger.error(f"Coins file not found: {coins_file}")
             return []
         
         try:
+            coins = []
             with open(coins_file, "r") as f:
-                coins = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    
+                    parts = line.split()
+                    symbol = parts[0]
+                    
+                    # Parse exchanges (default to bybit only)
+                    if len(parts) > 1:
+                        exchanges_str = parts[1]
+                        exchanges = exchanges_str.split("+")
+                    else:
+                        exchanges = ["bybit"]
+                    
+                    coins.append((symbol, exchanges))
             
             self.logger.info(f"Loaded {len(coins)} coins from {coins_file}")
             return coins
@@ -131,13 +153,14 @@ class DataCollector:
             self.logger.error(f"Failed to load coins file: {e}")
             return []
     
-    def fetch_and_store_coin(self, symbol: str) -> bool:
+    def fetch_and_store_coin(self, symbol: str, exchanges: list) -> bool:
         """
         Fetch data for a single coin and store it in InfluxDB.
-        Fetches both Bybit kline data and Deribit DVOL data.
+        Fetches data from specified exchanges only.
         
         Args:
             symbol (str): The coin symbol (e.g., BTCUSDT)
+            exchanges (list): List of exchanges to fetch from (e.g., ['bybit', 'deribit'])
             
         Returns:
             bool: True if at least one data source was successful, False otherwise
@@ -147,73 +170,75 @@ class DataCollector:
         deribit_success = False
         total_valid_points = 0
         
-        # Fetch Bybit Kline Data
-        try:
-            self.logger.debug(f"Fetching Bybit kline data for {symbol}")
-            
-            df_bybit = self.bybit.fetch_historical_kline(
-                currency=symbol,
-                days=config["DAYS"],
-                resolution=config["RESOLUTION_KLINE"]
-            )
-            
-            if not df_bybit.empty:
-                # Write to InfluxDB
-                valid_points = self.writer.write_market_data(
-                    df=df_bybit,
-                    symbol=symbol,
-                    exchange="Bybit",
-                    data_type="kline"
+        # Fetch Bybit Kline Data (only if specified)
+        if "bybit" in exchanges:
+            try:
+                self.logger.debug(f"Fetching Bybit kline data for {symbol}")
+                
+                df_bybit = self.bybit.fetch_historical_kline(
+                    currency=symbol,
+                    days=config["DAYS"],
+                    resolution=config["RESOLUTION_KLINE"]
                 )
                 
-                if valid_points > 0:
-                    total_valid_points += valid_points
-                    bybit_success = True
-                    self.logger.info(f"Bybit: Successfully processed {valid_points} kline points for {symbol}")
+                if not df_bybit.empty:
+                    # Write to InfluxDB
+                    valid_points = self.writer.write_market_data(
+                        df=df_bybit,
+                        symbol=symbol,
+                        exchange="Bybit",
+                        data_type="kline"
+                    )
+                    
+                    if valid_points > 0:
+                        total_valid_points += valid_points
+                        bybit_success = True
+                        self.logger.info(f"Bybit: Successfully processed {valid_points} kline points for {symbol}")
+                    else:
+                        self.logger.warning(f"Bybit: No valid kline data points for {symbol}")
                 else:
-                    self.logger.warning(f"Bybit: No valid kline data points for {symbol}")
-            else:
-                self.logger.warning(f"Bybit: No kline data returned for {symbol}")
+                    self.logger.warning(f"Bybit: No kline data returned for {symbol}")
+            
+            except Exception as e:
+                self.logger.error(f"Bybit: Failed to process kline data for {symbol}: {e}", exc_info=False)
         
-        except Exception as e:
-            self.logger.error(f"Bybit: Failed to process kline data for {symbol}: {e}", exc_info=False)
-        
-        # Fetch Deribit DVOL Data
-        try:
-            # Extract base currency (BTC from BTCUSDT, ETH from ETHUSDT)
-            base_currency = symbol.replace("USDT", "").replace("USDC", "")
-            
-            self.logger.debug(f"Fetching Deribit DVOL data for {base_currency}")
-            
-            # Deribit resolution needs to be in minutes (convert from Bybit format if needed)
-            deribit_resolution = config["RESOLUTION_KLINE"]
-            
-            df_deribit = self.deribit.fetch_historical_dvol(
-                currency=base_currency,
-                days=config["DAYS"],
-                resolution=deribit_resolution
-            )
-            
-            if not df_deribit.empty:
-                # Write to InfluxDB
-                valid_points = self.writer.write_market_data(
-                    df=df_deribit,
-                    symbol=symbol,
-                    exchange="Deribit",
-                    data_type="dvol"
+        # Fetch Deribit DVOL Data (only if specified)
+        if "deribit" in exchanges:
+            try:
+                # Extract base currency (BTC from BTCUSDT, ETH from ETHUSDT)
+                base_currency = symbol.replace("USDT", "").replace("USDC", "")
+                
+                self.logger.debug(f"Fetching Deribit DVOL data for {base_currency}")
+                
+                # Deribit resolution needs to be in minutes (convert from Bybit format if needed)
+                deribit_resolution = config["RESOLUTION_KLINE"]
+                
+                df_deribit = self.deribit.fetch_historical_dvol(
+                    currency=base_currency,
+                    days=config["DAYS"],
+                    resolution=deribit_resolution
                 )
                 
-                if valid_points > 0:
-                    total_valid_points += valid_points
-                    deribit_success = True
-                    self.logger.info(f"Deribit: Successfully processed {valid_points} DVOL points for {symbol}")
+                if not df_deribit.empty:
+                    # Write to InfluxDB
+                    valid_points = self.writer.write_market_data(
+                        df=df_deribit,
+                        symbol=symbol,
+                        exchange="Deribit",
+                        data_type="dvol"
+                    )
+                    
+                    if valid_points > 0:
+                        total_valid_points += valid_points
+                        deribit_success = True
+                        self.logger.info(f"Deribit: Successfully processed {valid_points} DVOL points for {symbol}")
+                    else:
+                        self.logger.warning(f"Deribit: No valid DVOL data points for {symbol}")
                 else:
-                    self.logger.warning(f"Deribit: No valid DVOL data points for {symbol}")
-            else:
-                self.logger.warning(f"Deribit: No DVOL data returned for {base_currency}")
-        
-        except Exception as e:
-            self.logger.error(f"Deribit: Failed to process DVOL data for {symbol}: {e}", exc_info=False)
+                    self.logger.warning(f"Deribit: No DVOL data returned for {base_currency}")
+            
+            except Exception as e:
+                self.logger.error(f"Deribit: Failed to process DVOL data for {symbol}: {e}", exc_info=False)
         
         # Update statistics
         if bybit_success or deribit_success:
@@ -247,9 +272,10 @@ class DataCollector:
         self.stats["total_coins"] = len(coins)
         
         # Process each coin
-        for i, symbol in enumerate(coins, 1):
-            self.logger.info(f"[{i}/{len(coins)}] Processing {symbol}")
-            self.fetch_and_store_coin(symbol)
+        for i, (symbol, exchanges) in enumerate(coins, 1):
+            exchanges_str = "+".join(exchanges)
+            self.logger.info(f"[{i}/{len(coins)}] Processing {symbol} (exchanges: {exchanges_str})")
+            self.fetch_and_store_coin(symbol, exchanges)
         
         # Flush remaining data
         self.logger.info("Flushing remaining data to InfluxDB...")

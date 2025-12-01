@@ -1,2 +1,20 @@
-BTCUSDT
-ETHUSDT
+# Format: SYMBOL [exchanges]
+# exchanges: bybit, deribit, or bybit+deribit
+# If no exchange specified, defaults to bybit only
+# Deribit DVOL only available for BTC and ETH
+
+BTCUSDT bybit+deribit
+ETHUSDT bybit+deribit
+XLMUSDT bybit
+XRPUSDT bybit
+BNBUSDT bybit
+SOLUSDT bybit
+TRXUSDT bybit
+DOGEUSDT bybit
+ADAUSDT bybit
+TONUSDT bybit
+LINKUSDT bybit
+AVAXUSDT bybit
+LTCUSDT bybit
+HYPEUSDT bybit
+XAUTUSDT bybit
