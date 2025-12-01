@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 from modules.bybit_klin import BybitKline
+from modules.deribit_dvol import DeribitDVOL
 from modules.influx_writer import InfluxDBWriter
 from config import get_config
 
@@ -95,6 +96,7 @@ class DataCollector:
         self.logger = logger
         self.batch_size = batch_size
         self.bybit = BybitKline()
+        self.deribit = DeribitDVOL()
         self.writer = InfluxDBWriter(batch_size=batch_size)
         self.stats = {
             "total_coins": 0,
@@ -132,48 +134,94 @@ class DataCollector:
     def fetch_and_store_coin(self, symbol: str) -> bool:
         """
         Fetch data for a single coin and store it in InfluxDB.
+        Fetches both Bybit kline data and Deribit DVOL data.
         
         Args:
             symbol (str): The coin symbol (e.g., BTCUSDT)
             
         Returns:
-            bool: True if successful, False otherwise
+            bool: True if at least one data source was successful, False otherwise
         """
+        config = get_config()
+        bybit_success = False
+        deribit_success = False
+        total_valid_points = 0
+        
+        # Fetch Bybit Kline Data
         try:
-            self.logger.debug(f"Fetching data for {symbol}")
+            self.logger.debug(f"Fetching Bybit kline data for {symbol}")
             
-            # Fetch the last 2 hours to ensure we get the most recent closed candle
-            df = self.bybit.fetch_historical_kline(
+            df_bybit = self.bybit.fetch_historical_kline(
                 currency=symbol,
-                days=get_config()["DAYS"],
-                resolution=get_config()["RESOLUTION_KLINE"]  # 1 hour
+                days=config["DAYS"],
+                resolution=config["RESOLUTION_KLINE"]
             )
             
-            if df.empty:
-                self.logger.warning(f"No data returned for {symbol}")
-                self.stats["failed_coins"] += 1
-                return False
-            
-            # Write to InfluxDB
-            valid_points = self.writer.write_market_data(
-                df=df,
-                symbol=symbol,
-                exchange="Bybit",
-                data_type="kline"
-            )
-            
-            if valid_points == 0:
-                self.logger.warning(f"No valid data points for {symbol}")
-                self.stats["failed_coins"] += 1
-                return False
-            
-            self.stats["successful_coins"] += 1
-            self.stats["total_points"] += valid_points
-            self.logger.info(f"Successfully processed {valid_points} points for {symbol}")
-            return True
+            if not df_bybit.empty:
+                # Write to InfluxDB
+                valid_points = self.writer.write_market_data(
+                    df=df_bybit,
+                    symbol=symbol,
+                    exchange="Bybit",
+                    data_type="kline"
+                )
+                
+                if valid_points > 0:
+                    total_valid_points += valid_points
+                    bybit_success = True
+                    self.logger.info(f"Bybit: Successfully processed {valid_points} kline points for {symbol}")
+                else:
+                    self.logger.warning(f"Bybit: No valid kline data points for {symbol}")
+            else:
+                self.logger.warning(f"Bybit: No kline data returned for {symbol}")
         
         except Exception as e:
-            self.logger.error(f"Failed to process {symbol}: {e}", exc_info=True)
+            self.logger.error(f"Bybit: Failed to process kline data for {symbol}: {e}", exc_info=False)
+        
+        # Fetch Deribit DVOL Data
+        try:
+            # Extract base currency (BTC from BTCUSDT, ETH from ETHUSDT)
+            base_currency = symbol.replace("USDT", "").replace("USDC", "")
+            
+            self.logger.debug(f"Fetching Deribit DVOL data for {base_currency}")
+            
+            # Deribit resolution needs to be in minutes (convert from Bybit format if needed)
+            deribit_resolution = config["RESOLUTION_KLINE"]
+            
+            df_deribit = self.deribit.fetch_historical_dvol(
+                currency=base_currency,
+                days=config["DAYS"],
+                resolution=deribit_resolution
+            )
+            
+            if not df_deribit.empty:
+                # Write to InfluxDB
+                valid_points = self.writer.write_market_data(
+                    df=df_deribit,
+                    symbol=symbol,
+                    exchange="Deribit",
+                    data_type="dvol"
+                )
+                
+                if valid_points > 0:
+                    total_valid_points += valid_points
+                    deribit_success = True
+                    self.logger.info(f"Deribit: Successfully processed {valid_points} DVOL points for {symbol}")
+                else:
+                    self.logger.warning(f"Deribit: No valid DVOL data points for {symbol}")
+            else:
+                self.logger.warning(f"Deribit: No DVOL data returned for {base_currency}")
+        
+        except Exception as e:
+            self.logger.error(f"Deribit: Failed to process DVOL data for {symbol}: {e}", exc_info=False)
+        
+        # Update statistics
+        if bybit_success or deribit_success:
+            self.stats["successful_coins"] += 1
+            self.stats["total_points"] += total_valid_points
+            self.logger.info(f"Total: Successfully processed {total_valid_points} points for {symbol} (Bybit: {bybit_success}, Deribit: {deribit_success})")
+            return True
+        else:
             self.stats["failed_coins"] += 1
             return False
     
