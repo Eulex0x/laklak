@@ -67,10 +67,14 @@ class DeribitDVOL:
             df = pd.DataFrame(all_data, columns=['timestamp', 'open', 'high', 'low', 'close'])
             
             # Convert timestamp to datetime
+            df['timestamp'] = pd.to_numeric(df['timestamp'])
             df['time'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
             
+            # Add volume column with 0 (DVOL doesn't have volume, but InfluxDB writer expects it)
+            df['volume'] = 0.0
+            
             # Drop the timestamp column and reorder
-            df = df[['time', 'open', 'high', 'low', 'close']]
+            df = df[['time', 'open', 'high', 'low', 'close', 'volume']]
             
             # Sort by time
             df = df.sort_values('time').reset_index(drop=True)
