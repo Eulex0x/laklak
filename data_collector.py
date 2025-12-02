@@ -249,8 +249,8 @@ class DataCollector:
             try:
                 self.logger.debug(f"Fetching Yahoo Finance data for {symbol}")
                 
-                # Convert interval format if needed (e.g., "60" -> "1h")
-                yf_interval = config.get("RESOLUTION_KLINE", "60")
+                # Convert interval format if needed (e.g., 60 -> "1h")
+                yf_interval = str(config.get("RESOLUTION_KLINE", 60))
                 if yf_interval == "60":
                     yf_interval = "1h"
                 elif yf_interval == "1":

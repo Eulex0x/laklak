@@ -37,7 +37,7 @@ HYPEUSDT bybit
 XAUTUSDT bybit
 
 # Yahoo Finance examples (uncomment to use)
-# BTC-USD yfinance
+BTC=F yfinance
 # ETH-USD yfinance
 # AAPL yfinance
 # GOOGL yfinance
