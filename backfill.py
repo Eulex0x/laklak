@@ -244,7 +244,7 @@ def main():
             batch_size=config["INFLUXDB_BATCH_SIZE"],
             days=365  # Fetch 1 year of historical data
         )
-        backfill.run(coins_file="coins.txt")
+        backfill.run(coins_file="assets.txt")
         
     except KeyboardInterrupt:
         logger.info("Historical backfill interrupted by user")

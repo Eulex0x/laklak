@@ -38,8 +38,9 @@ XAUTUSDT bybit
 
 # Yahoo Finance examples (uncomment to use)
 BTC=F yfinance
-# ETH-USD yfinance
-# AAPL yfinance
+ETH=F yfinance
+^GSPC yfinance
+^NDX yfinance
 # GOOGL yfinance
 # MSFT yfinance
 # ^GSPC yfinance
