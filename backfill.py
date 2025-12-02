@@ -20,6 +20,7 @@ import os
 from datetime import datetime
 
 from modules.exchanges.bybit import BybitKline
+from modules.exchanges.yfinance import YFinanceKline
 from modules.influx_writer import InfluxDBWriter
 from config import get_config
 
@@ -95,6 +96,7 @@ class HistoricalBackfill:
         self.batch_size = batch_size
         self.days = days
         self.bybit = BybitKline()
+        self.yfinance = YFinanceKline()
         self.writer = InfluxDBWriter(batch_size=batch_size)
         self.stats = {
             "total_coins": 0,
@@ -105,74 +107,135 @@ class HistoricalBackfill:
     
     def load_coins(self, coins_file: str = "coins.txt") -> list:
         """
-        Load the list of coins from a file.
+        Load the list of coins from a file with exchange specifications.
+        
+        Format: SYMBOL [exchanges]
+        Examples:
+            BTCUSDT bybit
+            BTC-USD yfinance
+            AAPL yfinance
         
         Args:
             coins_file (str): Path to the coins file
             
         Returns:
-            list: List of coin symbols
+            list: List of tuples (symbol, exchanges_list)
         """
         if not os.path.exists(coins_file):
             self.logger.error(f"Coins file not found: {coins_file}")
             return []
         
         try:
+            assets = []
             with open(coins_file, "r") as f:
-                coins = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    
+                    parts = line.split()
+                    symbol = parts[0]
+                    
+                    # Parse exchanges (default to bybit only)
+                    if len(parts) > 1:
+                        exchanges_str = parts[1]
+                        exchanges = exchanges_str.split("+")
+                    else:
+                        exchanges = ["bybit"]
+                    
+                    assets.append((symbol, exchanges))
             
-            self.logger.info(f"Loaded {len(coins)} coins from {coins_file}")
-            return coins
+            self.logger.info(f"Loaded {len(assets)} coins from {coins_file}")
+            return assets
         
         except Exception as e:
             self.logger.error(f"Failed to load coins file: {e}")
             return []
     
-    def backfill_coin(self, symbol: str) -> bool:
+    def backfill_coin(self, symbol: str, exchanges: list) -> bool:
         """
         Fetch historical data for a single coin and store it in InfluxDB.
         
         Args:
-            symbol (str): The coin symbol (e.g., BTCUSDT)
+            symbol (str): The coin symbol (e.g., BTCUSDT, BTC-USD)
+            exchanges (list): List of exchanges to fetch from
             
         Returns:
-            bool: True if successful, False otherwise
+            bool: True if at least one exchange was successful, False otherwise
         """
-        try:
-            self.logger.debug(f"Fetching {self.days} days of historical data for {symbol}")
-            
-            # Fetch historical data
-            df = self.bybit.fetch_historical_kline(
-                currency=symbol,
-                days=self.days,
-                resolution=60  # 1 hour
-            )
-            
-            if df.empty:
-                self.logger.warning(f"No historical data returned for {symbol}")
-                self.stats["failed_coins"] += 1
-                return False
-            
-            # Write to InfluxDB
-            valid_points = self.writer.write_market_data(
-                df=df,
-                symbol=symbol,
-                exchange="Bybit",
-                data_type="kline"
-            )
-            
-            if valid_points == 0:
-                self.logger.warning(f"No valid data points for {symbol}")
-                self.stats["failed_coins"] += 1
-                return False
-            
-            self.stats["successful_coins"] += 1
-            self.stats["total_points"] += valid_points
-            self.logger.info(f"Successfully backfilled {valid_points} points for {symbol}")
-            return True
+        any_success = False
+        total_points = 0
         
-        except Exception as e:
-            self.logger.error(f"Failed to backfill {symbol}: {e}", exc_info=True)
+        # Fetch from Bybit if specified
+        if "bybit" in exchanges:
+            try:
+                self.logger.debug(f"Fetching {self.days} days of Bybit data for {symbol}")
+                
+                df = self.bybit.fetch_historical_kline(
+                    currency=symbol,
+                    days=self.days,
+                    resolution="D"  # Daily candles (use 60 for 1 hour, "D" for daily)
+                )
+                
+                if not df.empty:
+                    db_symbol = f"{symbol}_BYBIT"
+                    valid_points = self.writer.write_market_data(
+                        df=df,
+                        symbol=db_symbol,
+                        exchange="Bybit",
+                        data_type="kline"
+                    )
+                    
+                    if valid_points > 0:
+                        total_points += valid_points
+                        any_success = True
+                        self.logger.info(f"Bybit: Backfilled {valid_points} points for {db_symbol}")
+                    else:
+                        self.logger.warning(f"Bybit: No valid data points for {symbol}")
+                else:
+                    self.logger.warning(f"Bybit: No data returned for {symbol}")
+            
+            except Exception as e:
+                self.logger.error(f"Bybit: Failed to backfill {symbol}: {e}", exc_info=False)
+        
+        # Fetch from YFinance if specified
+        if "yfinance" in exchanges:
+            try:
+                self.logger.debug(f"Fetching {self.days} days of YFinance data for {symbol}")
+                
+                df = self.yfinance.fetch_historical_kline(
+                    symbol=symbol,
+                    days=self.days,
+                    interval="1d"  # Daily candles
+                )
+                
+                if not df.empty:
+                    db_symbol = f"{symbol}_YFINANCE"
+                    valid_points = self.writer.write_market_data(
+                        df=df,
+                        symbol=db_symbol,
+                        exchange="YFinance",
+                        data_type="kline"
+                    )
+                    
+                    if valid_points > 0:
+                        total_points += valid_points
+                        any_success = True
+                        self.logger.info(f"YFinance: Backfilled {valid_points} points for {db_symbol}")
+                    else:
+                        self.logger.warning(f"YFinance: No valid data points for {symbol}")
+                else:
+                    self.logger.warning(f"YFinance: No data returned for {symbol}")
+            
+            except Exception as e:
+                self.logger.error(f"YFinance: Failed to backfill {symbol}: {e}", exc_info=False)
+        
+        # Update stats
+        if any_success:
+            self.stats["successful_coins"] += 1
+            self.stats["total_points"] += total_points
+            return True
+        else:
             self.stats["failed_coins"] += 1
             return False
     
@@ -198,9 +261,10 @@ class HistoricalBackfill:
         self.stats["total_coins"] = len(coins)
         
         # Process each coin
-        for i, symbol in enumerate(coins, 1):
-            self.logger.info(f"[{i}/{len(coins)}] Backfilling {symbol}")
-            self.backfill_coin(symbol)
+        for i, (symbol, exchanges) in enumerate(coins, 1):
+            exchanges_str = "+".join(exchanges)
+            self.logger.info(f"[{i}/{len(coins)}] Backfilling {symbol} ({exchanges_str})")
+            self.backfill_coin(symbol, exchanges)
         
         # Flush remaining data
         self.logger.info("Flushing remaining data to InfluxDB...")
