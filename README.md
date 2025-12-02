@@ -3,6 +3,15 @@
 > **Cross-Platform Market Data Collector**  
 > *Unified data collection from crypto exchanges, stock markets, and commodities - ready for analysis in seconds.*
 
+[![PyPI version](https://img.shields.io/pypi/v/laklak.svg)](https://pypi.org/project/laklak/)
+[![Python versions](https://img.shields.io/pypi/pyversions/laklak.svg)](https://pypi.org/project/laklak/)
+[![Downloads](https://img.shields.io/pypi/dm/laklak.svg)](https://pypi.org/project/laklak/)
+[![License](https://img.shields.io/github/license/Eulex0x/laklak)](https://github.com/Eulex0x/laklak/blob/main/LICENSE)
+
+```bash
+pip install laklak
+```
+
 ---
 
 ## 🎯 What is Laklak?
@@ -62,13 +71,44 @@ Laklak currently supports:
 
 ## 🎬 Quick Start - Get Data in 5 Minutes
 
-### Prerequisites
+### Option 1: Use as Python Library (Recommended) 📦
 
+**Install from PyPI:**
+
+```bash
+pip install laklak
+```
+
+**Use it directly in your code:**
+
+```python
+from laklak import collect, backfill
+
+# Collect latest 1-hour data for Bitcoin (last 30 days)
+collect('BTCUSDT', exchange='bybit', timeframe='1h', period=30)
+
+# Backfill historical 4-hour data (last 150 days)
+backfill('ETHUSDT', exchange='bybit', timeframe='4h', period=150)
+
+# Collect stock data from Yahoo Finance
+collect('AAPL', exchange='yfinance', timeframe='1d', period='1y')
+
+# Multiple timeframes supported
+collect('BTCUSDT', exchange='bybit', timeframe='5m', period='7d')
+collect('ETHUSDT', exchange='bybit', timeframe='15m', period='2w')
+```
+
+**That's it!** No configuration files, no setup - just import and use. 🚀
+
+**Prerequisites for library usage:**
 - Python 3.7+ 🐍
-- InfluxDB 1.6+ 💾
-- (Optional) API keys for private endpoints
+- InfluxDB 1.6+ 💾 (configured in your environment or pass connection details)
 
-### Installation
+---
+
+### Option 2: Use Source Code for Automation
+
+**For scheduled data collection and advanced customization:**
 
 ```bash
 # Clone the repository
@@ -83,7 +123,7 @@ cp .env.example .env
 nano .env  # Add your API keys if needed
 ```
 
-### Setup InfluxDB
+**Setup InfluxDB (required for both options):**
 
 ```bash
 # Create database
@@ -93,7 +133,9 @@ CREATE RETENTION POLICY "1_year" ON "market_data" DURATION 52w REPLICATION 1 DEF
 exit
 ```
 
-### Add Your Assets
+---
+
+### Configuration for Automation (Option 2)
 
 Edit `assets.txt` to define which assets you want to track:
 
@@ -112,13 +154,13 @@ GC=F yfinance                  # Gold futures
 BTC-USD yfinance               # Bitcoin from Yahoo Finance
 ```
 
-**That's it!** Laklak automatically:
+Laklak automatically:
 - ✅ Fetches from the correct API for each exchange
 - ✅ Handles different symbol formats (BTCUSDT vs BTC-USD)
 - ✅ Stores with clear naming: `BTCUSDT_BYBIT`, `AAPL_YFINANCE`, `BTC_DVOL`
 - ✅ Validates and batch-writes to InfluxDB
 
-### Run the Collector
+**Run the Collector:**
 
 ```bash
 python3 data_collector.py
