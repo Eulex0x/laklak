@@ -1,10 +1,10 @@
 import pandas as pd
 import requests
 from datetime import datetime, timedelta, timezone
-from config import get_config
+import os
 
 class BybitKline:
-    BASE_URL = get_config().get('BYBIT_API_URL', "https://api.bybit.com")
+    BASE_URL = os.getenv('BYBIT_API_URL', "https://api.bybit.com")
     
     @staticmethod
     def fetch_historical_kline(currency, days, resolution) -> pd.DataFrame:

@@ -82,27 +82,36 @@ pip install laklak
 **Use it directly in your code:**
 
 ```python
-from laklak import collect, backfill
+from laklak import collect, backfill, Laklak
 
-# Collect latest 1-hour data for Bitcoin (last 30 days)
+# Option A: Simple usage (requires InfluxDB running)
 collect('BTCUSDT', exchange='bybit', timeframe='1h', period=30)
-
-# Backfill historical 4-hour data (last 150 days)
 backfill('ETHUSDT', exchange='bybit', timeframe='4h', period=150)
 
-# Collect stock data from Yahoo Finance
-collect('AAPL', exchange='yfinance', timeframe='1d', period='1y')
+# Option B: Without InfluxDB (just fetch data)
+fetcher = Laklak(use_influxdb=False)
+fetcher.collect('BTCUSDT', exchange='bybit', timeframe='1h', period=30)
+
+# Option C: Custom InfluxDB connection
+fetcher = Laklak(
+    influx_host='192.168.1.100',
+    influx_port=8086,
+    influx_db='my_market_data',
+    influx_username='admin',
+    influx_password='secret'
+)
+fetcher.collect('AAPL', exchange='yfinance', timeframe='1d', period='1y')
 
 # Multiple timeframes supported
 collect('BTCUSDT', exchange='bybit', timeframe='5m', period='7d')
 collect('ETHUSDT', exchange='bybit', timeframe='15m', period='2w')
 ```
 
-**That's it!** No configuration files, no setup - just import and use. 🚀
+**That's it!** No configuration files needed - just import and use. 🚀
 
-**Prerequisites for library usage:**
+**Prerequisites:**
 - Python 3.7+ 🐍
-- InfluxDB 1.6+ 💾 (configured in your environment or pass connection details)
+- InfluxDB 1.6+ 💾 (optional - set `use_influxdb=False` if not needed)
 
 ---
 
@@ -236,7 +245,7 @@ Run the collector again - Laklak automatically handles the new assets!
 Laklak supports **any timeframe** you need:
 
 ```python
-from laklak import collect
+from laklak import collect, Laklak
 
 # 📊 Minutes: 1m, 3m, 5m, 15m, 30m
 collect('BTCUSDT', exchange='bybit', timeframe='5m', period='7d')
@@ -249,6 +258,10 @@ collect('AAPL', exchange='yfinance', timeframe='1d', period='1y')
 
 # 🎯 Period formats: days, '7d', '2w', '6m', '1y'
 collect('BTCUSDT', exchange='bybit', timeframe='15m', period=14)
+
+# Without InfluxDB (just fetch and process data yourself)
+fetcher = Laklak(use_influxdb=False)
+data = fetcher.collect('BTCUSDT', exchange='bybit', timeframe='1h', period=7)
 ```
 
 **Smart Limits**: Laklak automatically caps periods to respect Bybit's **1000 candle limit**:
@@ -262,18 +275,37 @@ collect('BTCUSDT', exchange='bybit', timeframe='15m', period=14)
 
 ### Configuration
 
-Edit `.env` to customize behavior:
+**Environment Variables (optional):**
 
 ```env
-# InfluxDB Connection
+# InfluxDB Connection (used if not specified in code)
 INFLUXDB_HOST=localhost
 INFLUXDB_PORT=8086
 INFLUXDB_DATABASE=market_data
-INFLUXDB_BATCH_SIZE=2  # Start small, scale to 100+ for production
+INFLUXDB_USERNAME=admin
+INFLUXDB_PASSWORD=secret
 
 # Logging
 LOG_LEVEL=INFO
 LOG_FILE=logs/collector.log
+```
+
+**Or configure in code:**
+
+```python
+from laklak import Laklak
+
+# Custom InfluxDB connection
+fetcher = Laklak(
+    influx_host='localhost',
+    influx_port=8086,
+    influx_db='market_data',
+    influx_username='admin',
+    influx_password='secret'
+)
+
+# Or disable InfluxDB completely
+fetcher = Laklak(use_influxdb=False)
 ```
 
 ---

@@ -16,7 +16,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='laklak',
-    version='1.0.1',
+    version='1.0.6',
     author='Eulex0x',
     author_email='milad@safda.de',
     description='Cross-Platform Market Data Collector',
@@ -28,7 +28,7 @@ setup(
         'Source': 'https://github.com/Eulex0x/laklak',
         'Documentation': 'https://github.com/Eulex0x/laklak/tree/main/Info',
     },
-    packages=find_packages(exclude=['tests', 'tests.*']),
+    packages=['laklak', 'modules', 'modules.exchanges'],
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',

@@ -8,14 +8,10 @@ import logging
 import sys
 import os
 
-# Add parent directory to path to import modules
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from modules.exchanges.bybit import BybitKline
 from modules.exchanges.deribit import DeribitDVOL
 from modules.exchanges.yfinance import YFinanceKline
 from modules.influx_writer import InfluxDBWriter
-import config
 
 # Setup logging
 logging.basicConfig(
@@ -72,29 +68,44 @@ class Laklak:
         >>> fetcher.backfill("AAPL", exchange="yfinance", days=30)
     """
     
-    def __init__(self, influx_host: Optional[str] = None, 
+    def __init__(self, 
+                 use_influxdb: bool = True,
+                 influx_host: Optional[str] = None, 
                  influx_port: Optional[int] = None,
-                 influx_db: Optional[str] = None):
+                 influx_db: Optional[str] = None,
+                 influx_username: Optional[str] = None,
+                 influx_password: Optional[str] = None):
         """
         Initialize Laklak with optional InfluxDB configuration.
         
         Args:
-            influx_host: InfluxDB host (default from config)
-            influx_port: InfluxDB port (default from config)
-            influx_db: InfluxDB database name (default from config)
+            use_influxdb: Whether to use InfluxDB (default: True)
+            influx_host: InfluxDB host (default from env: localhost)
+            influx_port: InfluxDB port (default from env: 8086)
+            influx_db: InfluxDB database name (default from env: market_data)
+            influx_username: InfluxDB username (optional)
+            influx_password: InfluxDB password (optional)
         """
-        self.influx_host = influx_host or config.INFLUXDB_HOST
-        self.influx_port = influx_port or config.INFLUXDB_PORT
-        self.influx_db = influx_db or config.INFLUXDB_DATABASE
+        self.use_influxdb = use_influxdb
+        self.influx_host = influx_host
+        self.influx_port = influx_port
+        self.influx_db = influx_db
+        self.influx_username = influx_username
+        self.influx_password = influx_password
         self.writer = None
         
-    def _get_writer(self) -> InfluxDBWriter:
+    def _get_writer(self) -> Optional[InfluxDBWriter]:
         """Get or create InfluxDB writer instance."""
+        if not self.use_influxdb:
+            return None
+            
         if self.writer is None:
             self.writer = InfluxDBWriter(
                 host=self.influx_host,
                 port=self.influx_port,
-                database=self.influx_db
+                database=self.influx_db,
+                username=self.influx_username,
+                password=self.influx_password
             )
         return self.writer
     
@@ -264,9 +275,12 @@ class Laklak:
                     continue
                 
                 if data and len(data) > 0:
-                    writer.write_batch(data)
+                    if writer:
+                        writer.write_batch(data)
+                        logger.info(f"✓ Collected and wrote {len(data)} points for {symbol}")
+                    else:
+                        logger.info(f"✓ Collected {len(data)} points for {symbol} (InfluxDB disabled)")
                     success_count += 1
-                    logger.info(f"✓ Collected {len(data)} points for {symbol}")
                 else:
                     logger.warning(f"✗ No data returned for {symbol}")
                     

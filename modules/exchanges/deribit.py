@@ -1,10 +1,10 @@
 import pandas as pd
 import requests
 from datetime import datetime, timedelta, timezone
-from config import get_config
+import os
 
 class DeribitDVOL:
-    BASE_URL = get_config().get('DERIBIT_API_URL', "https://www.deribit.com/api/v2")
+    BASE_URL = os.getenv('DERIBIT_API_URL', "https://www.deribit.com/api/v2")
     
     @staticmethod
     def fetch_historical_dvol(currency, days, resolution) -> pd.DataFrame:

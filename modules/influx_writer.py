@@ -15,7 +15,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import pandas as pd
 from influxdb import InfluxDBClient
-from config import get_config
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -31,21 +31,30 @@ class InfluxDBWriter:
     - Comprehensive error handling and logging
     """
 
-    def __init__(self, batch_size: int = 2):
+    def __init__(self, 
+                 host: str = None,
+                 port: int = None,
+                 database: str = None,
+                 username: str = None,
+                 password: str = None,
+                 batch_size: int = 2):
         """
         Initialize the InfluxDB writer.
         
         Args:
+            host (str): InfluxDB host. Defaults to INFLUXDB_HOST env var or 'localhost'
+            port (int): InfluxDB port. Defaults to INFLUXDB_PORT env var or 8086
+            database (str): InfluxDB database. Defaults to INFLUXDB_DATABASE env var or 'market_data'
+            username (str): InfluxDB username. Defaults to INFLUXDB_USERNAME env var or None
+            password (str): InfluxDB password. Defaults to INFLUXDB_PASSWORD env var or None
             batch_size (int): Number of data points to batch before writing to InfluxDB.
                             Default is 2. Can be increased to 100, 1000, etc. for production.
         """
-        config = get_config()
-        
-        self.host = config.get("INFLUXDB_HOST", "localhost")
-        self.port = config.get("INFLUXDB_PORT", 8086)
-        self.database = config.get("INFLUXDB_DATABASE", "market_data")
-        self.username = config.get("INFLUXDB_USERNAME", None)
-        self.password = config.get("INFLUXDB_PASSWORD", None)
+        self.host = host or os.getenv("INFLUXDB_HOST", "localhost")
+        self.port = port or int(os.getenv("INFLUXDB_PORT", "8086"))
+        self.database = database or os.getenv("INFLUXDB_DATABASE", "market_data")
+        self.username = username or os.getenv("INFLUXDB_USERNAME")
+        self.password = password or os.getenv("INFLUXDB_PASSWORD")
         self.batch_size = batch_size
         self.batch: List[Dict[str, Any]] = []
         
