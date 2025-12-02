@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "laklak"
+version = "1.0.0"
+description = "Cross-Platform Market Data Collector"
+readme = "README.md"
+authors = [
+    {name = "Eulex0x", email = "milad@safda.de"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+keywords = ["trading", "finance", "data", "crypto", "stocks", "forex", "bybit", "deribit", "yfinance", "influxdb", "market-data"]
+dependencies = [
+    "requests",
+    "python-dotenv",
+    "pandas",
+    "influxdb-client",
+    "influxdb",
+    "yfinance",
+]
+requires-python = ">=3.7"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=22.0",
+    "flake8>=5.0",
+    "mypy>=0.990",
+]
+
+[project.urls]
+Homepage = "https://github.com/Eulex0x/laklak"
+Documentation = "https://github.com/Eulex0x/laklak/tree/main/Info"
+Repository = "https://github.com/Eulex0x/laklak"
+"Bug Reports" = "https://github.com/Eulex0x/laklak/issues"
+
+[project.scripts]
+laklak-collect = "data_collector:main"
+laklak-backfill = "backfill:main"
+
+[tool.setuptools]
+packages = ["modules", "modules.exchanges"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.md"]
+
+[tool.black]
+line-length = 100
+target-version = ['py37', 'py38', 'py39', 'py310', 'py311']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.mypy]
+python_version = "3.7"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false

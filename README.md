@@ -1,15 +1,15 @@
-# DataFetcher
+# Laklak
 
-> **Your Gateway to Real-Time Financial Market Data**  
+> **Cross-Platform Market Data Collector**  
 > *Unified data collection from crypto exchanges, stock markets, and commodities - ready for analysis in seconds.*
 
 ---
 
-## 🎯 What is DataFetcher?
+## 🎯 What is Laklak?
 
-**DataFetcher** is a production-ready Python application that solves a critical problem for traders, analysts, and data scientists: **fragmented financial data sources**. Instead of writing custom integrations for every exchange or market, DataFetcher provides a unified solution to collect, validate, and store time-series market data from multiple sources in one central database.
+**Laklak** is a production-ready Python application that solves a critical problem for traders, analysts, and data scientists: **fragmented financial data sources**. Instead of writing custom integrations for every exchange or market, Laklak provides a unified solution to collect, validate, and store time-series market data from multiple sources in one central database.
 
-Whether you're tracking Bitcoin on Bybit, monitoring S&P 500 volatility, or analyzing gold prices, DataFetcher handles the complexity of API integrations, data formatting, and storage - so you can focus on analysis and strategy development.
+Whether you're tracking Bitcoin on Bybit, monitoring S&P 500 volatility, or analyzing gold prices, Laklak handles the complexity of API integrations, data formatting, and storage - so you can focus on analysis and strategy development.
 
 ### The Problem We Solve
 
@@ -19,7 +19,7 @@ Whether you're tracking Bitcoin on Bybit, monitoring S&P 500 volatility, or anal
 - **Scalability**: Manual data collection doesn't scale beyond a few assets
 - **Time-Series Storage**: Traditional databases aren't optimized for market data
 
-### The DataFetcher Solution
+### The Laklak Solution
 
 ✅ **Unified Interface**: One configuration file to rule them all  
 ✅ **Multi-Source Support**: Crypto, stocks, forex, commodities, volatility indices  
@@ -31,7 +31,7 @@ Whether you're tracking Bitcoin on Bybit, monitoring S&P 500 volatility, or anal
 
 ## 🚀 Multi-Exchange Support
 
-DataFetcher currently supports:
+Laklak currently supports:
 
 | Source | Data Type | Assets | Example Symbols |
 |--------|-----------|--------|-----------------|
@@ -72,8 +72,8 @@ DataFetcher currently supports:
 
 ```bash
 # Clone the repository
-git clone https://github.com/Eulex0x/datafetcher.git
-cd datafetcher
+git clone https://github.com/Eulex0x/laklak.git
+cd laklak
 
 # Install dependencies
 pip3 install -r requirements.txt
@@ -112,7 +112,7 @@ GC=F yfinance                  # Gold futures
 BTC-USD yfinance               # Bitcoin from Yahoo Finance
 ```
 
-**That's it!** DataFetcher automatically:
+**That's it!** Laklak automatically:
 - ✅ Fetches from the correct API for each exchange
 - ✅ Handles different symbol formats (BTCUSDT vs BTC-USD)
 - ✅ Stores with clear naming: `BTCUSDT_BYBIT`, `AAPL_YFINANCE`, `BTC_DVOL`
@@ -144,7 +144,7 @@ mkdir -p logs
 
 # Add to crontab (runs every hour at minute 0)
 crontab -e
-# Add: 0 * * * * cd /home/user/datafetcher && /usr/bin/python3 data_collector.py >> logs/collector.log 2>&1
+# Add: 0 * * * * cd /home/user/laklak && /usr/bin/python3 data_collector.py >> logs/collector.log 2>&1
 ```
 
 ---
@@ -187,7 +187,36 @@ AVAXUSDT bybit     # Avalanche
 LINKUSDT bybit     # Chainlink
 ```
 
-Run the collector again - DataFetcher automatically handles the new assets!
+Run the collector again - Laklak automatically handles the new assets!
+
+### Flexible Timeframes
+
+Laklak supports **any timeframe** you need:
+
+```python
+from laklak import collect
+
+# 📊 Minutes: 1m, 3m, 5m, 15m, 30m
+collect('BTCUSDT', exchange='bybit', timeframe='5m', period='7d')
+
+# ⏰ Hours: 1h, 2h, 4h, 6h, 12h
+collect('ETHUSDT', exchange='bybit', timeframe='4h', period='3m')
+
+# 📅 Days/Weeks/Months: 1d, 1w, 1M
+collect('AAPL', exchange='yfinance', timeframe='1d', period='1y')
+
+# 🎯 Period formats: days, '7d', '2w', '6m', '1y'
+collect('BTCUSDT', exchange='bybit', timeframe='15m', period=14)
+```
+
+**Smart Limits**: Laklak automatically caps periods to respect Bybit's **1000 candle limit**:
+- **1min**: max ~17 hours
+- **5min**: max ~3.5 days  
+- **15min**: max ~10 days
+- **1hour**: max ~42 days (not 1 year!)
+- **4hour**: max ~167 days (~5.5 months) - **recommended for backfill**
+- **1day**: max ~1000 days (~2.7 years)
+- **1week**: longer periods (yfinance supports more)
 
 ### Configuration
 
@@ -200,10 +229,6 @@ INFLUXDB_PORT=8086
 INFLUXDB_DATABASE=market_data
 INFLUXDB_BATCH_SIZE=2  # Start small, scale to 100+ for production
 
-# Data Collection
-RESOLUTION_KLINE=60  # 60 minutes (1 hour candles)
-DAYS=10              # Days to fetch in backfill
-
 # Logging
 LOG_LEVEL=INFO
 LOG_FILE=logs/collector.log
@@ -211,7 +236,7 @@ LOG_FILE=logs/collector.log
 
 ---
 
-## 🎯 Who Should Use DataFetcher?
+## 🎯 Who Should Use Laklak?
 
 ### 📈 Traders & Quantitative Analysts
 Build and backtest strategies with clean, validated historical data from multiple markets.
@@ -242,7 +267,7 @@ Get production-grade infrastructure without building it from scratch.
                      │
                      ▼
 ┌─────────────────────────────────────────────────────┐
-│  DataFetcher Core                                   │
+│  Laklak Core                                         │
 │  • data_collector.py  (real-time)                   │
 │  • backfill.py        (historical)                  │
 │  • Exchange modules   (bybit/deribit/yfinance)      │
@@ -296,7 +321,7 @@ Get production-grade infrastructure without building it from scratch.
 
 ## 📊 Grafana Integration
 
-DataFetcher is **Grafana-ready** out of the box! Your data flows directly into InfluxDB and can be visualized instantly.
+Laklak is **Grafana-ready** out of the box! Your data flows directly into InfluxDB and can be visualized instantly.
 
 ### Quick Grafana Setup
 
@@ -379,7 +404,7 @@ GROUP BY time(1h), symbol
 
 ### From Prototype to Production
 
-DataFetcher is designed to scale with your needs:
+Laklak is designed to scale with your needs:
 
 **Phase 1: Testing (2-10 assets)**
 ```env
@@ -518,7 +543,7 @@ influx.query(`
 ## 📂 Project Structure
 
 ```
-datafetcher/
+laklak/
 ├── data_collector.py          # Real-time data collection (hourly)
 ├── backfill.py                # Historical data backfill
 ├── config.py                  # Centralized configuration
@@ -549,10 +574,10 @@ datafetcher/
 
 ### The Big Picture
 
-DataFetcher is evolving into the **ultimate all-in-one financial data library** - think of it as the "requests" or "pandas" of market data. Our goal is to make accessing any financial data as simple as:
+Laklak is evolving into the **ultimate all-in-one financial data library** - think of it as the "requests" or "pandas" of market data. Our goal is to make accessing any financial data as simple as:
 
 ```python
-from datafetcher import collect
+from laklak import collect
 
 # Collect any asset from any source
 collect("BTCUSDT", source="bybit")
@@ -564,7 +589,7 @@ collect("BTC_DVOL", source="deribit")
 
 **Q1 2025**
 - [ ] 🔄 Real-time WebSocket support (live data streaming)
-- [ ] 📦 PyPI package release (`pip install datafetcher`)
+- [x] 📦 PyPI package release (`pip install laklak`)
 - [ ] 🌐 Binance & Kraken integration
 - [ ] 🔍 Advanced anomaly detection
 
@@ -627,8 +652,8 @@ You are free to:
 ### Get Help
 
 - 📖 **Documentation**: Check the [`Info/`](Info/) directory
-- 🐛 **Issues**: [GitHub Issues](https://github.com/Eulex0x/datafetcher/issues)
-- 💡 **Discussions**: [GitHub Discussions](https://github.com/Eulex0x/datafetcher/discussions)
+- 🐛 **Issues**: [GitHub Issues](https://github.com/Eulex0x/laklak/issues)
+- 💡 **Discussions**: [GitHub Discussions](https://github.com/Eulex0x/laklak/discussions)
 
 ### Stay Updated
 
@@ -651,10 +676,10 @@ Special thanks to:
 
 ## 📊 Stats
 
-![GitHub stars](https://img.shields.io/github/stars/Eulex0x/datafetcher?style=social)
-![GitHub forks](https://img.shields.io/github/forks/Eulex0x/datafetcher?style=social)
-![GitHub issues](https://img.shields.io/github/issues/Eulex0x/datafetcher)
-![GitHub license](https://img.shields.io/github/license/Eulex0x/datafetcher)
+![GitHub stars](https://img.shields.io/github/stars/Eulex0x/laklak?style=social)
+![GitHub forks](https://img.shields.io/github/forks/Eulex0x/laklak?style=social)
+![GitHub issues](https://img.shields.io/github/issues/Eulex0x/laklak)
+![GitHub license](https://img.shields.io/github/license/Eulex0x/laklak)
 
 ---
 
@@ -662,6 +687,6 @@ Special thanks to:
 
 **Made with ❤️ for the trading and data science community**
 
-[⬆ Back to top](#datafetcher)
+[⬆ Back to top](#laklak)
 
 </div>
