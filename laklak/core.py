@@ -2,11 +2,12 @@
 Core Laklak functionality - Simple API for data collection
 """
 
-from typing import Optional, Union, List
+from typing import Optional, Union, List, Dict
 from datetime import datetime, timedelta
 import logging
 import sys
 import os
+import pandas as pd
 
 from modules.exchanges.bybit import BybitKline
 from modules.exchanges.deribit import DeribitDVOL
@@ -180,7 +181,7 @@ class Laklak:
                 symbols: Union[str, List[str]], 
                 exchange: str,
                 timeframe: Union[str, int] = '1h',
-                period: Union[str, int] = 30) -> bool:
+                period: Union[str, int] = 30) -> Union[bool, Dict[str, pd.DataFrame]]:
         """
         Collect latest data for one or more symbols.
         
@@ -193,7 +194,8 @@ class Laklak:
                    (default: 30 days)
             
         Returns:
-            bool: True if successful, False otherwise
+            If use_influxdb=True: bool (True if successful)
+            If use_influxdb=False: Dict[str, pd.DataFrame] (symbol -> DataFrame with OHLCV data)
             
         Note:
             Bybit API limits responses to 1000 candles. Period is automatically capped:
@@ -253,23 +255,28 @@ class Laklak:
             f"[timeframe: {timeframe}, period: {days} days]"
         )
         
+        # Store collected DataFrames when InfluxDB is disabled
+        collected_data = {} if not self.use_influxdb else None
         success_count = 0
+        
         for symbol in symbols:
             try:
                 data = None
+                df_raw = None
+                
                 if exchange == "bybit":
-                    df = BybitKline.fetch_historical_kline(symbol, days, resolution)
-                    if df is not None and not df.empty:
-                        data = self._convert_to_influx_format(df, symbol, "bybit", "kline")
+                    df_raw = BybitKline.fetch_historical_kline(symbol, days, resolution)
+                    if df_raw is not None and not df_raw.empty:
+                        data = self._convert_to_influx_format(df_raw, symbol, "bybit", "kline")
                 elif exchange == "deribit":
                     base_currency = symbol.replace("USDT", "").replace("USD", "")
-                    df = DeribitDVOL.fetch_historical_dvol(base_currency, days, resolution * 60)
-                    if df is not None and not df.empty:
-                        data = self._convert_to_influx_format(df, f"{base_currency}_DVOL", "deribit", "dvol")
+                    df_raw = DeribitDVOL.fetch_historical_dvol(base_currency, days, resolution * 60)
+                    if df_raw is not None and not df_raw.empty:
+                        data = self._convert_to_influx_format(df_raw, f"{base_currency}_DVOL", "deribit", "dvol")
                 elif exchange == "yfinance":
-                    df = YFinanceKline.fetch_historical_data(symbol, days, resolution)
-                    if df is not None and not df.empty:
-                        data = self._convert_to_influx_format(df, symbol, "yfinance", "kline")
+                    df_raw = YFinanceKline.fetch_historical_data(symbol, days, resolution)
+                    if df_raw is not None and not df_raw.empty:
+                        data = self._convert_to_influx_format(df_raw, symbol, "yfinance", "kline")
                 else:
                     logger.error(f"Unknown exchange: {exchange}")
                     continue
@@ -279,6 +286,9 @@ class Laklak:
                         writer.write_batch(data)
                         logger.info(f"✓ Collected and wrote {len(data)} points for {symbol}")
                     else:
+                        # Store DataFrame for return when InfluxDB is disabled
+                        if df_raw is not None:
+                            collected_data[symbol] = df_raw
                         logger.info(f"✓ Collected {len(data)} points for {symbol} (InfluxDB disabled)")
                     success_count += 1
                 else:
@@ -289,13 +299,18 @@ class Laklak:
                 continue
         
         logger.info(f"Collection complete: {success_count}/{len(symbols)} successful")
-        return success_count == len(symbols)
+        
+        # Return data or success status depending on mode
+        if self.use_influxdb:
+            return success_count == len(symbols)
+        else:
+            return collected_data
     
     def backfill(self,
                  symbols: Union[str, List[str]],
                  exchange: str,
                  timeframe: Union[str, int] = '4h',
-                 period: Union[str, int] = 150) -> bool:
+                 period: Union[str, int] = 150) -> Union[bool, Dict[str, pd.DataFrame]]:
         """
         Backfill historical data for symbols.
         
@@ -306,7 +321,8 @@ class Laklak:
             period: How far back - string like '30d', '1y' or integer days (default: 150 days ~5 months)
             
         Returns:
-            bool: True if successful, False otherwise
+            If use_influxdb=True: bool (True if successful)
+            If use_influxdb=False: Dict[str, pd.DataFrame] (symbol -> DataFrame with OHLCV data)
             
         Note:
             Default changed to 4h/150d to respect Bybit's 1000 candle limit.
@@ -338,7 +354,7 @@ def collect(symbol: Union[str, List[str]],
             exchange: str,
             timeframe: Union[str, int] = '1h',
             period: Union[str, int] = 30,
-            **kwargs) -> bool:
+            **kwargs) -> Union[bool, Dict[str, pd.DataFrame]]:
     """
     Quick function to collect data without creating a Laklak instance.
     
@@ -347,21 +363,27 @@ def collect(symbol: Union[str, List[str]],
         exchange: Exchange name ('bybit', 'deribit', 'yfinance')
         timeframe: Time interval - '1m', '5m', '15m', '1h', '4h', '1d', '1w' (default: '1h')
         period: Data period - '7d', '30d', '1y' or integer days (default: 30)
+        **kwargs: Additional arguments (e.g., use_influxdb=False to get data back)
+    
+    Returns:
+        If use_influxdb=True (default): bool (True if successful)
+        If use_influxdb=False: Dict[str, pd.DataFrame] (symbol -> DataFrame with OHLCV data)
     
     Examples:
         >>> from laklak import collect
         >>> 
-        >>> # Simple: 1 hour candles, 30 days (default)
+        >>> # Write to InfluxDB (default behavior)
         >>> collect("BTCUSDT", exchange="bybit")
         >>> 
-        >>> # 5 minute candles, last week
-        >>> collect("BTCUSDT", exchange="bybit", timeframe="5m", period="7d")
+        >>> # Get data as DataFrame without InfluxDB
+        >>> data = collect("BTCUSDT", exchange="bybit", timeframe="5m", period="7d", use_influxdb=False)
+        >>> btc_df = data["BTCUSDT"]
+        >>> print(btc_df.head())
         >>> 
-        >>> # Daily candles, last year
-        >>> collect(["AAPL", "GOOGL"], exchange="yfinance", timeframe="1d", period="1y")
-        >>> 
-        >>> # 15 min candles, 14 days
-        >>> collect("ETHUSDT", exchange="bybit", timeframe="15m", period=14)
+        >>> # Multiple symbols
+        >>> data = collect(["AAPL", "GOOGL"], exchange="yfinance", timeframe="1d", period="1y", use_influxdb=False)
+        >>> aapl_df = data["AAPL"]
+        >>> googl_df = data["GOOGL"]
     """
     fetcher = Laklak(**kwargs)
     return fetcher.collect(symbol, exchange, timeframe, period)
@@ -371,7 +393,7 @@ def backfill(symbol: Union[str, List[str]],
              exchange: str,
              timeframe: Union[str, int] = '4h',
              period: Union[str, int] = 150,
-             **kwargs) -> bool:
+             **kwargs) -> Union[bool, Dict[str, pd.DataFrame]]:
     """
     Quick function to backfill data without creating a Laklak instance.
     
@@ -380,6 +402,11 @@ def backfill(symbol: Union[str, List[str]],
         exchange: Exchange name ('bybit', 'deribit', 'yfinance')
         timeframe: Time interval like '1h', '4h', '1d' (default: '4h')
         period: How far back - '30d', '1y' or integer days (default: 150 days)
+        **kwargs: Additional arguments (e.g., use_influxdb=False to get data back)
+    
+    Returns:
+        If use_influxdb=True (default): bool (True if successful)
+        If use_influxdb=False: Dict[str, pd.DataFrame] (symbol -> DataFrame with OHLCV data)
     
     Note:
         Default is 4h/150d to respect Bybit's 1000 candle limit (~900 candles).
@@ -387,14 +414,15 @@ def backfill(symbol: Union[str, List[str]],
     Examples:
         >>> from laklak import backfill
         >>> 
-        >>> # 4 hour candles, 150 days (default, within limit)
+        >>> # Write to InfluxDB (default)
         >>> backfill("BTCUSDT", exchange="bybit")
         >>> 
-        >>> # Daily candles, 2 years (~730 candles)
-        >>> backfill("BTCUSDT", exchange="bybit", timeframe="1d", period="2y")
+        >>> # Get data without InfluxDB
+        >>> data = backfill("BTCUSDT", exchange="bybit", timeframe="1d", period="2y", use_influxdb=False)
+        >>> btc_df = data["BTCUSDT"]
         >>> 
         >>> # 1 hour, 40 days (~960 candles, safe)
-        >>> backfill("ETHUSDT", exchange="bybit", timeframe="1h", period=40)
+        >>> data = backfill("ETHUSDT", exchange="bybit", timeframe="1h", period=40, use_influxdb=False)
     """
     fetcher = Laklak(**kwargs)
     return fetcher.backfill(symbol, exchange, timeframe, period)

@@ -20,7 +20,7 @@ Advanced Usage:
     >>> backfill("BTCUSDT", exchange="bybit", days=30)
 """
 
-__version__ = "1.0.6"
+__version__ = "1.0.7"
 __author__ = "Eulex0x"
 __license__ = "MIT"
 

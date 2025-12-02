@@ -84,13 +84,23 @@ pip install laklak
 ```python
 from laklak import collect, backfill, Laklak
 
-# Option A: Simple usage (requires InfluxDB running)
+# Option A: Simple usage (write to InfluxDB)
 collect('BTCUSDT', exchange='bybit', timeframe='1h', period=30)
 backfill('ETHUSDT', exchange='bybit', timeframe='4h', period=150)
 
-# Option B: Without InfluxDB (just fetch data)
-fetcher = Laklak(use_influxdb=False)
-fetcher.collect('BTCUSDT', exchange='bybit', timeframe='1h', period=30)
+# Option B: Get data as DataFrame (no InfluxDB needed) ⭐ NEW in v1.0.7
+data = collect('BTCUSDT', exchange='bybit', timeframe='1h', period=30, use_influxdb=False)
+btc_df = data['BTCUSDT']  # pandas DataFrame with OHLCV data
+print(btc_df.head())
+#                      open     high      low    close      volume
+# 2024-01-01 00:00:00  42000.0  42100.0  41900.0  42050.0  1234567.0
+# 2024-01-01 01:00:00  42050.0  42200.0  42000.0  42150.0  2345678.0
+
+# Multiple symbols return a dictionary
+data = collect(['BTCUSDT', 'ETHUSDT'], exchange='bybit', 
+               timeframe='5m', period='7d', use_influxdb=False)
+btc_df = data['BTCUSDT']
+eth_df = data['ETHUSDT']
 
 # Option C: Custom InfluxDB connection
 fetcher = Laklak(
@@ -259,9 +269,17 @@ collect('AAPL', exchange='yfinance', timeframe='1d', period='1y')
 # 🎯 Period formats: days, '7d', '2w', '6m', '1y'
 collect('BTCUSDT', exchange='bybit', timeframe='15m', period=14)
 
-# Without InfluxDB (just fetch and process data yourself)
-fetcher = Laklak(use_influxdb=False)
-data = fetcher.collect('BTCUSDT', exchange='bybit', timeframe='1h', period=7)
+# ⭐ NEW: Without InfluxDB - Get data as DataFrame (v1.0.7+)
+data = collect('BTCUSDT', exchange='bybit', timeframe='1h', period='7d', use_influxdb=False)
+btc_df = data['BTCUSDT']  # pandas DataFrame with columns: open, high, low, close, volume, timestamp
+print(f"Got {len(btc_df)} candles")
+print(btc_df.describe())  # Statistical summary
+
+# Multiple symbols return a dictionary
+data = collect(['BTCUSDT', 'ETHUSDT', 'SOLUSDT'], 
+               exchange='bybit', timeframe='15m', period=14, use_influxdb=False)
+for symbol, df in data.items():
+    print(f"{symbol}: {len(df)} rows, price range {df['low'].min()}-{df['high'].max()}")
 ```
 
 **Smart Limits**: Laklak automatically caps periods to respect Bybit's **1000 candle limit**:
@@ -304,9 +322,58 @@ fetcher = Laklak(
     influx_password='secret'
 )
 
-# Or disable InfluxDB completely
+# Or disable InfluxDB completely and get data back
 fetcher = Laklak(use_influxdb=False)
+data = fetcher.collect('BTCUSDT', exchange='bybit', timeframe='1h', period=30)
+# data is now a Dict[str, pd.DataFrame] - use it however you want!
 ```
+
+### 📊 Working with Returned Data (v1.0.7+)
+
+When `use_influxdb=False`, Laklak returns the data as pandas DataFrames instead of writing to the database:
+
+```python
+from laklak import collect, backfill
+
+# Get hourly BTC data for last 30 days
+data = collect('BTCUSDT', exchange='bybit', timeframe='1h', period=30, use_influxdb=False)
+btc_df = data['BTCUSDT']
+
+# DataFrame structure:
+# - Index: datetime (timezone-aware)
+# - Columns: open, high, low, close, volume
+
+# Analyze the data
+print(f"Latest close: ${btc_df['close'].iloc[-1]:,.2f}")
+print(f"30-day high: ${btc_df['high'].max():,.2f}")
+print(f"30-day low: ${btc_df['low'].min():,.2f}")
+print(f"Average volume: {btc_df['volume'].mean():,.0f}")
+
+# Calculate returns
+btc_df['returns'] = btc_df['close'].pct_change()
+print(f"Volatility: {btc_df['returns'].std():.4f}")
+
+# Multiple symbols at once
+data = backfill(['BTCUSDT', 'ETHUSDT', 'SOLUSDT'], 
+                exchange='bybit', timeframe='4h', period=150, use_influxdb=False)
+
+# Process each symbol
+for symbol, df in data.items():
+    print(f"\n{symbol}:")
+    print(f"  Total candles: {len(df)}")
+    print(f"  Date range: {df.index[0]} to {df.index[-1]}")
+    print(f"  Price change: {((df['close'].iloc[-1] / df['close'].iloc[0] - 1) * 100):.2f}%")
+    
+# Save to CSV or use in your own analysis pipeline
+btc_df.to_csv('btc_data.csv')
+```
+
+**Use Cases for Data Return Mode:**
+- 🧪 **Research & Experimentation**: Quick data pulls without database setup
+- 🤖 **Custom Processing**: Feed data into your ML pipeline or analysis tools
+- 💾 **Alternative Storage**: Save to CSV, Parquet, or your own database
+- 📊 **Ad-Hoc Analysis**: Jupyter notebook explorations and one-off analyses
+- ⚡ **Lightweight Deployments**: No InfluxDB dependency for simple use cases
 
 ---
 

@@ -33,6 +33,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Quick reference guide
 - Publishing guide for PyPI
 
+## [1.0.7] - 2024-12-02
+
+### Added
+- ⭐ **Data Return Mode**: `collect()` and `backfill()` now return pandas DataFrames when `use_influxdb=False`
+  - Returns `Dict[str, pd.DataFrame]` mapping symbol to OHLCV data
+  - Enables usage without InfluxDB dependency
+  - Perfect for research, ML pipelines, and ad-hoc analysis
+
+### Changed
+- Updated return type annotations to `Union[bool, Dict[str, pd.DataFrame]]`
+- Enhanced documentation with DataFrame usage examples
+- Added imports for `Dict` and `pandas` in core module
+
+### Examples
+```python
+# Get data as DataFrame instead of writing to InfluxDB
+data = collect('BTCUSDT', exchange='bybit', timeframe='1h', period=30, use_influxdb=False)
+btc_df = data['BTCUSDT']  # pandas DataFrame with OHLCV columns
+print(btc_df.head())
+```
+
+## [1.0.6] - 2024-12-02
+
+### Fixed
+- Made InfluxDB optional via `use_influxdb` parameter
+- Removed all `config.py` dependencies
+- All modules now use `os.getenv()` directly for environment variables
+
+## [1.0.5] - 2024-12-02
+
+### Fixed
+- Additional import fixes for exchange modules
+
+## [1.0.4] - 2024-12-02
+
+### Fixed
+- Removed config.py imports from all exchange modules
+- Fixed import errors in Bybit and Deribit modules
+
+## [1.0.3] - 2024-12-02
+
+### Fixed
+- Added `laklak` module to packages list in setup.py and pyproject.toml
+- Fixed ModuleNotFoundError when importing from package
+
+## [1.0.2] - 2024-12-02
+
+### Fixed
+- Package import issues
+
+## [1.0.1] - 2024-12-02
+
+### Fixed
+- Initial package structure fixes
+
 ## [Unreleased]
 
 ### Planned for v1.1.0

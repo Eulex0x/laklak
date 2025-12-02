@@ -16,7 +16,7 @@ with open('requirements.txt') as f:
 
 setup(
     name='laklak',
-    version='1.0.6',
+    version='1.0.7',
     author='Eulex0x',
     author_email='milad@safda.de',
     description='Cross-Platform Market Data Collector',
