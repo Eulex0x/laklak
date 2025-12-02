@@ -19,7 +19,7 @@ import sys
 import os
 from datetime import datetime
 
-from modules.bybit_klin import BybitKline
+from modules.exchanges.bybit import BybitKline
 from modules.influx_writer import InfluxDBWriter
 from config import get_config
 

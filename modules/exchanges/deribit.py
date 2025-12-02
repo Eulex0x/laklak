@@ -1,15 +1,13 @@
 import pandas as pd
 import requests
 from datetime import datetime, timedelta, timezone
-from dotenv import load_dotenv
-import json
 from config import get_config
 
 class DeribitDVOL:
     BASE_URL = get_config().get('DERIBIT_API_URL', "https://www.deribit.com/api/v2")
     
     @staticmethod
-    def fetch_historical_dvol(currency,days,resolution) -> pd.DataFrame:
+    def fetch_historical_dvol(currency, days, resolution) -> pd.DataFrame:
         """
         Fetch historical DVOL (volatility index) data from Deribit.
         
@@ -19,7 +17,7 @@ class DeribitDVOL:
             resolution: Time resolution - "1" (1min), "60" (1hr), "3600" (1day), "43200" (12hr), "1D" (1day)
         
         Returns:
-            DataFrame with columns: time, open, high, low, close
+            DataFrame with columns: time, open, high, low, close, volume
         """
         try:
             # Calculate timestamps
@@ -87,5 +85,3 @@ class DeribitDVOL:
         except Exception as e:
             print(f"Error processing DVOL data: {e}")
             return pd.DataFrame()
-
-

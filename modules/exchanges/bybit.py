@@ -2,13 +2,12 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta, timezone
 from config import get_config
-from modules.deribit_dvol import DeribitDVOL 
 
 class BybitKline:
     BASE_URL = get_config().get('BYBIT_API_URL', "https://api.bybit.com")
     
     @staticmethod
-    def fetch_historical_kline(currency,days,resolution) -> pd.DataFrame:
+    def fetch_historical_kline(currency, days, resolution) -> pd.DataFrame:
         try:
             # Calculate timestamps
             end_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
@@ -73,5 +72,3 @@ class BybitKline:
         except Exception as e:
             print(f"Error processing Kline data: {e}")
             return pd.DataFrame()
-
-

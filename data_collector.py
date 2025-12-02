@@ -21,8 +21,9 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from modules.bybit_klin import BybitKline
-from modules.deribit_dvol import DeribitDVOL
+from modules.exchanges.bybit import BybitKline
+from modules.exchanges.deribit import DeribitDVOL
+from modules.exchanges.yfinance import YFinanceKline
 from modules.influx_writer import InfluxDBWriter
 from config import get_config
 
@@ -97,38 +98,39 @@ class DataCollector:
         self.batch_size = batch_size
         self.bybit = BybitKline()
         self.deribit = DeribitDVOL()
+        self.yfinance = YFinanceKline()
         self.writer = InfluxDBWriter(batch_size=batch_size)
         self.stats = {
-            "total_coins": 0,
-            "successful_coins": 0,
-            "failed_coins": 0,
+            "total_assets": 0,
+            "successful_assets": 0,
+            "failed_assets": 0,
             "total_points": 0,
             "skipped_points": 0
         }
     
-    def load_coins(self, coins_file: str = "coins.txt") -> list:
+    def load_assets(self, assets_file: str = "assets.txt") -> list:
         """
-        Load the list of coins from a file with exchange specifications.
+        Load the list of assets from a file with exchange specifications.
         
         Format: SYMBOL [exchanges]
         Examples:
             BTCUSDT bybit+deribit
-            ETHUSDT bybit+deribit
-            SOLUSDT bybit
+            BTC-USD yfinance
+            AAPL yfinance
         
         Args:
-            coins_file (str): Path to the coins file
+            assets_file (str): Path to the assets file
             
         Returns:
             list: List of tuples (symbol, exchanges_list)
         """
-        if not os.path.exists(coins_file):
-            self.logger.error(f"Coins file not found: {coins_file}")
+        if not os.path.exists(assets_file):
+            self.logger.error(f"Assets file not found: {assets_file}")
             return []
         
         try:
-            coins = []
-            with open(coins_file, "r") as f:
+            assets = []
+            with open(assets_file, "r") as f:
                 for line in f:
                     line = line.strip()
                     if not line or line.startswith("#"):
@@ -144,30 +146,29 @@ class DataCollector:
                     else:
                         exchanges = ["bybit"]
                     
-                    coins.append((symbol, exchanges))
+                    assets.append((symbol, exchanges))
             
-            self.logger.info(f"Loaded {len(coins)} coins from {coins_file}")
-            return coins
+            self.logger.info(f"Loaded {len(assets)} assets from {assets_file}")
+            return assets
         
         except Exception as e:
             self.logger.error(f"Failed to load coins file: {e}")
             return []
     
-    def fetch_and_store_coin(self, symbol: str, exchanges: list) -> bool:
+    def fetch_and_store_asset(self, symbol: str, exchanges: list) -> bool:
         """
-        Fetch data for a single coin and store it in InfluxDB.
+        Fetch data for a single asset and store it in InfluxDB.
         Fetches data from specified exchanges only.
         
         Args:
-            symbol (str): The coin symbol (e.g., BTCUSDT)
-            exchanges (list): List of exchanges to fetch from (e.g., ['bybit', 'deribit'])
+            symbol (str): The asset symbol (e.g., BTCUSDT, BTC-USD, AAPL)
+            exchanges (list): List of exchanges to fetch from (e.g., ['bybit', 'deribit', 'yfinance'])
             
         Returns:
             bool: True if at least one data source was successful, False otherwise
         """
         config = get_config()
-        bybit_success = False
-        deribit_success = False
+        success_flags = {"bybit": False, "deribit": False, "yfinance": False}
         total_valid_points = 0
         
         # Fetch Bybit Kline Data (only if specified)
@@ -182,18 +183,19 @@ class DataCollector:
                 )
                 
                 if not df_bybit.empty:
-                    # Write to InfluxDB
+                    # Write to InfluxDB with exchange-specific symbol
+                    db_symbol = f"{symbol}_BYBIT"
                     valid_points = self.writer.write_market_data(
                         df=df_bybit,
-                        symbol=symbol,
+                        symbol=db_symbol,
                         exchange="Bybit",
                         data_type="kline"
                     )
                     
                     if valid_points > 0:
                         total_valid_points += valid_points
-                        bybit_success = True
-                        self.logger.info(f"Bybit: Successfully processed {valid_points} kline points for {symbol}")
+                        success_flags["bybit"] = True
+                        self.logger.info(f"Bybit: Successfully processed {valid_points} kline points for {db_symbol}")
                     else:
                         self.logger.warning(f"Bybit: No valid kline data points for {symbol}")
                 else:
@@ -220,42 +222,88 @@ class DataCollector:
                 )
                 
                 if not df_deribit.empty:
-                    # Write to InfluxDB
+                    # Write to InfluxDB with data-type specific symbol
+                    # DVOL is volatility, not price, so use descriptive naming
+                    db_symbol = f"{base_currency}_DVOL"
                     valid_points = self.writer.write_market_data(
                         df=df_deribit,
-                        symbol=symbol,
+                        symbol=db_symbol,
                         exchange="Deribit",
                         data_type="dvol"
                     )
                     
                     if valid_points > 0:
                         total_valid_points += valid_points
-                        deribit_success = True
-                        self.logger.info(f"Deribit: Successfully processed {valid_points} DVOL points for {symbol}")
+                        success_flags["deribit"] = True
+                        self.logger.info(f"Deribit: Successfully processed {valid_points} DVOL points for {db_symbol}")
                     else:
-                        self.logger.warning(f"Deribit: No valid DVOL data points for {symbol}")
+                        self.logger.warning(f"Deribit: No valid DVOL data points for {base_currency}")
                 else:
                     self.logger.warning(f"Deribit: No DVOL data returned for {base_currency}")
             
             except Exception as e:
                 self.logger.error(f"Deribit: Failed to process DVOL data for {symbol}: {e}", exc_info=False)
         
+        # Fetch Yahoo Finance Data (only if specified)
+        if "yfinance" in exchanges:
+            try:
+                self.logger.debug(f"Fetching Yahoo Finance data for {symbol}")
+                
+                # Convert interval format if needed (e.g., "60" -> "1h")
+                yf_interval = config.get("RESOLUTION_KLINE", "60")
+                if yf_interval == "60":
+                    yf_interval = "1h"
+                elif yf_interval == "1":
+                    yf_interval = "1m"
+                elif yf_interval == "1D":
+                    yf_interval = "1d"
+                
+                df_yfinance = self.yfinance.fetch_historical_kline(
+                    symbol=symbol,
+                    days=config["DAYS"],
+                    interval=yf_interval
+                )
+                
+                if not df_yfinance.empty:
+                    # Write to InfluxDB with exchange-specific symbol
+                    db_symbol = f"{symbol}_YFINANCE"
+                    valid_points = self.writer.write_market_data(
+                        df=df_yfinance,
+                        symbol=db_symbol,
+                        exchange="YFinance",
+                        data_type="kline"
+                    )
+                    
+                    if valid_points > 0:
+                        total_valid_points += valid_points
+                        success_flags["yfinance"] = True
+                        self.logger.info(f"YFinance: Successfully processed {valid_points} kline points for {db_symbol}")
+                    else:
+                        self.logger.warning(f"YFinance: No valid kline data points for {symbol}")
+                else:
+                    self.logger.warning(f"YFinance: No kline data returned for {symbol}")
+            
+            except Exception as e:
+                self.logger.error(f"YFinance: Failed to process kline data for {symbol}: {e}", exc_info=False)
+        
         # Update statistics
-        if bybit_success or deribit_success:
-            self.stats["successful_coins"] += 1
+        any_success = any(success_flags.values())
+        if any_success:
+            self.stats["successful_assets"] += 1
             self.stats["total_points"] += total_valid_points
-            self.logger.info(f"Total: Successfully processed {total_valid_points} points for {symbol} (Bybit: {bybit_success}, Deribit: {deribit_success})")
+            success_str = ", ".join([f"{k}: {v}" for k, v in success_flags.items() if v])
+            self.logger.info(f"Total: Successfully processed {total_valid_points} points for {symbol} ({success_str})")
             return True
         else:
-            self.stats["failed_coins"] += 1
+            self.stats["failed_assets"] += 1
             return False
     
-    def run(self, coins_file: str = "coins.txt") -> None:
+    def run(self, assets_file: str = "assets.txt") -> None:
         """
         Run the data collection process.
         
         Args:
-            coins_file (str): Path to the coins file
+            assets_file (str): Path to the assets file
         """
         self.logger.info("="*80)
         self.logger.info("Starting market data collection")
@@ -263,19 +311,19 @@ class DataCollector:
         
         start_time = datetime.now()
         
-        # Load coins
-        coins = self.load_coins(coins_file)
-        if not coins:
-            self.logger.error("No coins to process, exiting")
+        # Load assets
+        assets = self.load_assets(assets_file)
+        if not assets:
+            self.logger.error("No assets to process, exiting")
             return
         
-        self.stats["total_coins"] = len(coins)
+        self.stats["total_assets"] = len(assets)
         
-        # Process each coin
-        for i, (symbol, exchanges) in enumerate(coins, 1):
+        # Process each asset
+        for i, (symbol, exchanges) in enumerate(assets, 1):
             exchanges_str = "+".join(exchanges)
-            self.logger.info(f"[{i}/{len(coins)}] Processing {symbol} (exchanges: {exchanges_str})")
-            self.fetch_and_store_coin(symbol, exchanges)
+            self.logger.info(f"[{i}/{len(assets)}] Processing {symbol} (exchanges: {exchanges_str})")
+            self.fetch_and_store_asset(symbol, exchanges)
         
         # Flush remaining data
         self.logger.info("Flushing remaining data to InfluxDB...")
@@ -288,9 +336,9 @@ class DataCollector:
         elapsed_time = (datetime.now() - start_time).total_seconds()
         self.logger.info("="*80)
         self.logger.info("Data collection completed")
-        self.logger.info(f"Total coins: {self.stats['total_coins']}")
-        self.logger.info(f"Successful: {self.stats['successful_coins']}")
-        self.logger.info(f"Failed: {self.stats['failed_coins']}")
+        self.logger.info(f"Total assets: {self.stats['total_assets']}")
+        self.logger.info(f"Successful: {self.stats['successful_assets']}")
+        self.logger.info(f"Failed: {self.stats['failed_assets']}")
         self.logger.info(f"Total points written: {self.stats['total_points']}")
         self.logger.info(f"Elapsed time: {elapsed_time:.2f} seconds")
         self.logger.info("="*80)
@@ -318,7 +366,7 @@ def main():
             logger=logger,
             batch_size=config["INFLUXDB_BATCH_SIZE"]
         )
-        collector.run(coins_file="coins.txt")
+        collector.run(assets_file="assets.txt")
         
     except KeyboardInterrupt:
         logger.info("Data collection interrupted by user")

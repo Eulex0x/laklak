@@ -3,3 +3,4 @@ python-dotenv
 pandas
 influxdb-client
 influxdb
+yfinance

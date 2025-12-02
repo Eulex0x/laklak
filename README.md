@@ -1,11 +1,15 @@
 # Market Data Collector
 
-A production-ready Python application for collecting and storing 1-hour OHLCV market data for 1000+ cryptocurrencies in InfluxDB. This system serves as a centralized data repository that can be used by multiple trading strategies and analytical tools.
+A production-ready Python application for collecting and storing 1-hour OHLCV market data from multiple exchanges and data sources in InfluxDB. This system serves as a centralized data repository that can be used by multiple trading strategies and analytical tools.
+
+> **🚀 NEW: Multi-Exchange Support!** Now supports Bybit (crypto), Deribit (volatility), and Yahoo Finance (stocks, indices, forex, commodities). See [`MULTI_EXCHANGE_GUIDE.md`](MULTI_EXCHANGE_GUIDE.md) for details.
 
 ## Features
 
-- **Multi-Coin Support**: Collect data for 1000+ coins simultaneously
+- **Multi-Exchange Support**: Collect data from Bybit, Deribit, and Yahoo Finance
+- **Multi-Asset Support**: Cryptocurrencies, stocks, indices, forex, and commodities
 - **InfluxDB Integration**: Efficient time-series data storage and retrieval
+- **Exchange-Specific Naming**: Symbols stored as `SYMBOL_EXCHANGE` (e.g., `BTCUSDT_BYBIT`, `AAPL_YFINANCE`)
 - **Data Validation**: Automatic validation of data before writing to database
 - **Configurable Batching**: Start with small batches and scale to 1000+ for production
 - **Comprehensive Logging**: Detailed logging for monitoring and debugging

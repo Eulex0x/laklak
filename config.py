@@ -30,7 +30,7 @@ INFLUXDB_BATCH_SIZE = int(os.getenv("INFLUXDB_BATCH_SIZE", 2))  # Start with 2, 
 # Data Collection Configuration
 # ============================================================================
 BASE_COIN = os.getenv("BASE_COIN", "BTC")
-DAYS = int(os.getenv("DAYS", 10))
+DAYS = float(os.getenv("DAYS", 10))  # Support fractional days (e.g., 0.042 = 1 hour)
 RESOLUTION_KLINE = int(os.getenv("RESOLUTION_KLINE", 60))  # 60 for 1 hour
 RESOLUTION_IV = int(os.getenv("RESOLUTION_IV", 60)) * 60  # Convert to seconds
 

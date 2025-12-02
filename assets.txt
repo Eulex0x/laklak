@@ -1,0 +1,46 @@
+# Asset Configuration File
+# Format: SYMBOL EXCHANGE [ADDITIONAL_EXCHANGES]
+# 
+# SYMBOL: The trading pair or ticker symbol
+# EXCHANGE: Primary exchange/data provider (bybit, deribit, yfinance)
+# ADDITIONAL_EXCHANGES: Optional additional exchanges separated by +
+#
+# Examples:
+#   BTCUSDT bybit+deribit     - Fetch BTC/USDT from both Bybit and Deribit (DVOL)
+#   BTC-USD yfinance          - Fetch BTC/USD from Yahoo Finance
+#   AAPL yfinance             - Fetch Apple stock from Yahoo Finance
+#   ETHUSDT bybit             - Fetch ETH/USDT only from Bybit
+#
+# Note: 
+# - Deribit DVOL only available for BTC and ETH (uses base currency)
+# - Yahoo Finance symbols use their native format (BTC-USD, AAPL, ^GSPC, etc.)
+# - Bybit uses USDT pairs (BTCUSDT, ETHUSDT, etc.)
+# - Storage format in DB:
+#   * Price data: SYMBOL_EXCHANGE (e.g., BTCUSDT_BYBIT, BTC-USD_YFINANCE)
+#   * Volatility data: BASECURRENCY_DVOL (e.g., BTC_DVOL, ETH_DVOL)
+
+# Crypto assets with multiple sources
+BTCUSDT bybit+deribit
+ETHUSDT bybit+deribit
+XLMUSDT bybit
+XRPUSDT bybit
+BNBUSDT bybit
+SOLUSDT bybit
+TRXUSDT bybit
+DOGEUSDT bybit
+ADAUSDT bybit
+TONUSDT bybit
+LINKUSDT bybit
+AVAXUSDT bybit
+LTCUSDT bybit
+HYPEUSDT bybit
+XAUTUSDT bybit
+
+# Yahoo Finance examples (uncomment to use)
+# BTC-USD yfinance
+# ETH-USD yfinance
+# AAPL yfinance
+# GOOGL yfinance
+# MSFT yfinance
+# ^GSPC yfinance
+# ^DJI yfinance
