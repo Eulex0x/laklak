@@ -79,7 +79,7 @@ class InfluxDBWriter:
             logger.error(f"Failed to connect to InfluxDB: {e}")
             raise
 
-    def _validate_row(self, row: Dict[str, Any], symbol: str) -> bool:
+    def _validate_row(self, row: Dict[str, Any], symbol: str, data_type: str = "kline") -> bool:
         """
         Validate a single data row before writing to InfluxDB.
         
@@ -91,6 +91,7 @@ class InfluxDBWriter:
         Args:
             row (Dict): The data row to validate
             symbol (str): The trading symbol (for logging)
+            data_type (str): The data type (kline, funding_rate, dvol, etc.)
             
         Returns:
             bool: True if valid, False otherwise
@@ -111,10 +112,13 @@ class InfluxDBWriter:
                 return False
         
         # Validate numeric fields
+        # Note: Funding rates can be negative (shorts pay longs), so skip negative check for them
+        allow_negative = (data_type == "funding_rate")
+        
         for field in ["open", "high", "low", "close", "volume"]:
             try:
                 float_value = float(row[field])
-                if float_value < 0:
+                if not allow_negative and float_value < 0:
                     logger.warning(f"Negative value in field '{field}' for {symbol}: {float_value}")
                     return False
             except (ValueError, TypeError):
@@ -155,13 +159,13 @@ class InfluxDBWriter:
             row (Dict): The data row
             symbol (str): The trading symbol (e.g., BTCUSDT)
             exchange (str): The exchange name (e.g., Bybit)
-            data_type (str): The data type (e.g., kline, dvol)
+            data_type (str): The data type (e.g., kline, dvol, funding_rate)
             
         Returns:
             Dict: An InfluxDB point, or None if validation fails
         """
-        # Validate the row
-        if not self._validate_row(row, symbol):
+        # Validate the row (pass data_type to allow negative values for funding rates)
+        if not self._validate_row(row, symbol, data_type):
             return None
         
         try:

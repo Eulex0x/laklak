@@ -20,8 +20,8 @@
 #   * Volatility data: BASECURRENCY_DVOL (e.g., BTC_DVOL, ETH_DVOL)
 
 # Crypto assets with multiple sources
-BTCUSDT bybit+deribit
-ETHUSDT bybit+deribit
+#BTCUSDT bybit+deribit
+#ETHUSDT bybit+deribit
 XLMUSDT bybit
 XRPUSDT bybit
 BNBUSDT bybit

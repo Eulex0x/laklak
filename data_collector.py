@@ -203,6 +203,36 @@ class DataCollector:
             
             except Exception as e:
                 self.logger.error(f"Bybit: Failed to process kline data for {symbol}: {e}", exc_info=False)
+            
+            # Also fetch funding rate for Bybit perpetual contracts
+            try:
+                self.logger.debug(f"Fetching Bybit funding rate for {symbol}")
+                
+                df_funding = self.bybit.fetch_funding_rate(
+                    currency=symbol,
+                    days=config["DAYS"]
+                )
+                
+                if not df_funding.empty:
+                    # Write to InfluxDB with naming: SYMBOL_fundingrate_bybit
+                    db_symbol = f"{symbol}_fundingrate_bybit"
+                    valid_points = self.writer.write_market_data(
+                        df=df_funding,
+                        symbol=db_symbol,
+                        exchange="Bybit",
+                        data_type="funding_rate"
+                    )
+                    
+                    if valid_points > 0:
+                        total_valid_points += valid_points
+                        self.logger.info(f"Bybit: Successfully processed {valid_points} funding rate points for {db_symbol}")
+                    else:
+                        self.logger.debug(f"Bybit: No valid funding rate data points for {symbol}")
+                else:
+                    self.logger.debug(f"Bybit: No funding rate data returned for {symbol}")
+            
+            except Exception as e:
+                self.logger.debug(f"Bybit: Failed to process funding rate for {symbol}: {e}")
         
         # Fetch Deribit DVOL Data (only if specified)
         if "deribit" in exchanges:

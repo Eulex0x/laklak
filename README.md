@@ -45,12 +45,11 @@ Laklak currently supports:
 | Source | Data Type | Assets | Example Symbols |
 |--------|-----------|--------|-----------------|
 | **Bybit** | OHLCV (1h candles) | Crypto spot & perpetuals | BTCUSDT, ETHUSDT, SOLUSDT |
+| **Bybit** | Funding Rates | Perpetual contracts | BTCUSDT_fundingrate_bybit |
 | **Deribit** | DVOL (volatility index) | BTC & ETH volatility | BTC_DVOL, ETH_DVOL |
 | **Yahoo Finance** | OHLCV (1h candles) | Stocks, indices, forex, commodities | AAPL, ^GSPC, GC=F, EUR=X |
 
 💡 **Coming Soon**: Binance, Kraken, CoinGecko, Alpha Vantage, and more!
-
-> **📚 NEW: Multi-Exchange Support!** See [`MULTI_EXCHANGE_GUIDE.md`](Info/MULTI_EXCHANGE_GUIDE.md) for detailed configuration examples.
 
 ---
 
@@ -219,6 +218,20 @@ Collect the latest hourly data for all configured assets:
 ```bash
 python3 data_collector.py
 ```
+
+**NEW! Automatic Funding Rate Collection** 🎯
+
+When you run `data_collector.py`, it now automatically collects **funding rates** for all Bybit perpetual contracts alongside price data!
+
+**What are Funding Rates?**
+- Updated every 8 hours (00:00, 08:00, 16:00 UTC)
+- Positive rate = long positions pay short positions
+- Negative rate = short positions pay long positions
+- Critical for perpetual futures trading strategies
+
+**Storage Format:** `SYMBOL_fundingrate_bybit` (e.g., `BTCUSDT_fundingrate_bybit`)
+
+No extra configuration needed - if you have Bybit assets in `assets.txt`, funding rates are collected automatically!
 
 ### Historical Backfill
 
@@ -477,6 +490,12 @@ WHERE "symbol" = 'BTCUSDT_BYBIT'
 AND $timeFilter 
 GROUP BY time($__interval)
 
+-- Bitcoin Funding Rate (NEW!)
+SELECT mean("close") FROM "market_data" 
+WHERE "symbol" = 'BTCUSDT_fundingrate_bybit' 
+AND $timeFilter 
+GROUP BY time($__interval)
+
 -- Compare BTC prices across exchanges
 SELECT mean("close") FROM "market_data" 
 WHERE "symbol" =~ /BTC.*/ 
@@ -488,11 +507,15 @@ SELECT mean("close") FROM "market_data"
 WHERE "symbol" IN ('BTCUSDT_BYBIT', 'ETHUSDT_BYBIT', 'GC=F_YFINANCE')
 AND $timeFilter 
 GROUP BY time($__interval), "symbol"
+
+-- Funding Rates for Multiple Assets (NEW!)
+SELECT mean("close") FROM "market_data" 
+WHERE "symbol" =~ /.*_fundingrate_bybit/ 
+AND $timeFilter 
+GROUP BY time($__interval), "symbol"
 ```
 
 **Pro Tip**: Use Grafana template variables to switch between assets dynamically!
-
-See [`Info/GRAFANA_SETUP.md`](Info/GRAFANA_SETUP.md) for detailed dashboard examples.
 
 ---
 
@@ -685,7 +708,7 @@ influx.query(`
 
 ```
 laklak/
-├── data_collector.py          # Real-time data collection (hourly)
+├── data_collector.py          # Real-time data collection (OHLCV + funding rates)
 ├── backfill.py                # Historical data backfill
 ├── config.py                  # Centralized configuration
 ├── assets.txt                 # Asset configuration file
@@ -693,18 +716,13 @@ laklak/
 ├── LICENSE                    # MIT License
 ├── README.md                  # This file
 │
-├── Info/                      # Documentation
-│   ├── GRAFANA_SETUP.md       # Grafana dashboard guide
-│   ├── MULTI_EXCHANGE_GUIDE.md # Multi-exchange configuration
-│   ├── SETUP_GUIDE.md         # Detailed setup instructions
-│   └── QUICK_REFERENCE.md     # Command quick reference
-│
+
 └── modules/                   # Core modules
     ├── __init__.py
     ├── influx_writer.py       # InfluxDB writer with validation
     └── exchanges/             # Exchange-specific modules
         ├── __init__.py
-        ├── bybit.py           # Bybit API integration
+        ├── bybit.py           # Bybit OHLCV + funding rates
         ├── deribit.py         # Deribit DVOL integration
         └── yfinance.py        # Yahoo Finance integration
 ```
