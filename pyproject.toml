@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "laklak"
-version = "1.0.8"
+version = "1.0.9"
 description = "Cross-Platform Market Data Collector"
 readme = "README.md"
 authors = [
