@@ -130,6 +130,7 @@ class BitunixKline:
             
             data = result["data"]
             funding_rate = float(data.get("fundingRate", 0))
+            funding_rate = funding_rate / 100.0  # Convert percentage to decimal
             
             # Create DataFrame with current timestamp
             current_time = datetime.now(timezone.utc)
