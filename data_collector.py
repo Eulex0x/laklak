@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 
 from modules.exchanges.bybit import BybitKline
+from modules.exchanges.bitunix import BitunixKline
 from modules.exchanges.deribit import DeribitDVOL
 from modules.exchanges.yfinance import YFinanceKline
 from modules.influx_writer import InfluxDBWriter
@@ -97,6 +98,7 @@ class DataCollector:
         self.logger = logger
         self.batch_size = batch_size
         self.bybit = BybitKline()
+        self.bitunix = BitunixKline()
         self.deribit = DeribitDVOL()
         self.yfinance = YFinanceKline()
         self.writer = InfluxDBWriter(batch_size=batch_size)
@@ -168,7 +170,7 @@ class DataCollector:
             bool: True if at least one data source was successful, False otherwise
         """
         config = get_config()
-        success_flags = {"bybit": False, "deribit": False, "yfinance": False}
+        success_flags = {"bybit": False, "bitunix": False, "deribit": False, "yfinance": False}
         total_valid_points = 0
         
         # Fetch Bybit Kline Data (only if specified)
@@ -233,6 +235,68 @@ class DataCollector:
             
             except Exception as e:
                 self.logger.debug(f"Bybit: Failed to process funding rate for {symbol}: {e}")
+        
+        # Fetch Bitunix Data (only if specified)
+        if "bitunix" in exchanges:
+            # Fetch Bitunix Kline Data
+            try:
+                self.logger.debug(f"Fetching Bitunix kline data for {symbol}")
+                
+                df_bitunix = self.bitunix.fetch_historical_kline(
+                    currency=symbol,
+                    days=config["DAYS"],
+                    resolution=config["RESOLUTION_KLINE"]
+                )
+                
+                if not df_bitunix.empty:
+                    # Write to InfluxDB with exchange-specific symbol
+                    db_symbol = f"{symbol}_BITUNIX"
+                    valid_points = self.writer.write_market_data(
+                        df=df_bitunix,
+                        symbol=db_symbol,
+                        exchange="Bitunix",
+                        data_type="kline"
+                    )
+                    
+                    if valid_points > 0:
+                        total_valid_points += valid_points
+                        success_flags["bitunix"] = True
+                        self.logger.info(f"Bitunix: Successfully processed {valid_points} kline points for {db_symbol}")
+                    else:
+                        self.logger.warning(f"Bitunix: No valid kline data points for {symbol}")
+                else:
+                    self.logger.warning(f"Bitunix: No kline data returned for {symbol}")
+            
+            except Exception as e:
+                self.logger.error(f"Bitunix: Failed to process kline data for {symbol}: {e}", exc_info=False)
+            
+            # Fetch Bitunix Funding Rate
+            try:
+                self.logger.debug(f"Fetching Bitunix funding rate for {symbol}")
+                
+                df_funding_bitunix = self.bitunix.fetch_funding_rate(currency=symbol)
+                
+                if not df_funding_bitunix.empty:
+                    # Write to InfluxDB with naming: SYMBOL_fundingrate_bitunix
+                    db_symbol = f"{symbol}_fundingrate_bitunix"
+                    valid_points = self.writer.write_market_data(
+                        df=df_funding_bitunix,
+                        symbol=db_symbol,
+                        exchange="Bitunix",
+                        data_type="funding_rate"
+                    )
+                    
+                    if valid_points > 0:
+                        total_valid_points += valid_points
+                        success_flags["bitunix"] = True
+                        self.logger.info(f"Bitunix: Successfully processed {valid_points} funding rate points for {db_symbol}")
+                    else:
+                        self.logger.debug(f"Bitunix: No valid funding rate data points for {symbol}")
+                else:
+                    self.logger.debug(f"Bitunix: No funding rate data returned for {symbol}")
+            
+            except Exception as e:
+                self.logger.debug(f"Bitunix: Failed to process funding rate for {symbol}: {e}")
         
         # Fetch Deribit DVOL Data (only if specified)
         if "deribit" in exchanges:
