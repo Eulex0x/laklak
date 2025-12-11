@@ -25,6 +25,46 @@ from modules.influx_writer import InfluxDBWriter
 from config import get_config
 
 # ============================================================================
+# ⚙️ BACKFILL SETTINGS - EDIT THESE VALUES BEFORE RUNNING
+# ============================================================================
+
+BACKFILL_CONFIG = {
+    # ═══════════════════════════════════════════════════════════════════════
+    # Time Period Settings
+    # ═══════════════════════════════════════════════════════════════════════
+    "DAYS": 60,                         # Number of days to backfill (e.g., 7, 30, 365)
+                                        # Supports decimal: 0.5 = 12 hours, 0.042 = 1 hour
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # Timeframe/Interval Settings
+    # ═══════════════════════════════════════════════════════════════════════
+    "BYBIT_RESOLUTION": "60",            # Bybit timeframe:
+                                        #   "1"  = 1 minute
+                                        #   "5"  = 5 minutes
+                                        #   "15" = 15 minutes
+                                        #   "60" = 1 hour
+                                        #   "D"  = 1 day (Daily)
+    
+    "YFINANCE_INTERVAL": "1h",          # YFinance interval:
+                                        #   "1m"  = 1 minute
+                                        #   "5m"  = 5 minutes
+                                        #   "15m" = 15 minutes
+                                        #   "1h"  = 1 hour
+                                        #   "1d"  = 1 day (Daily)
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # File Settings
+    # ═══════════════════════════════════════════════════════════════════════
+    "ASSETS_FILE": "assets.txt",        # File containing list of coins/assets
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # Performance Settings
+    # ═══════════════════════════════════════════════════════════════════════
+    "BATCH_SIZE": 2,                    # Number of records to batch (2-100)
+                                        # Lower = safer, Higher = faster
+}
+
+# ============================================================================
 # Logging Configuration
 # ============================================================================
 
@@ -83,7 +123,8 @@ class HistoricalBackfill:
     Historical data backfill class that orchestrates fetching and storing historical market data.
     """
     
-    def __init__(self, logger: logging.Logger, batch_size: int = 2, days: int = 365):
+    def __init__(self, logger: logging.Logger, batch_size: int = 2, days: int = 365, 
+                 bybit_resolution: str = "D", yfinance_interval: str = "1h"):
         """
         Initialize the backfill processor.
         
@@ -91,10 +132,14 @@ class HistoricalBackfill:
             logger (logging.Logger): Logger instance
             batch_size (int): Batch size for InfluxDB writes
             days (int): Number of days of historical data to fetch
+            bybit_resolution (str): Bybit timeframe resolution
+            yfinance_interval (str): YFinance interval
         """
         self.logger = logger
         self.batch_size = batch_size
         self.days = days
+        self.bybit_resolution = bybit_resolution
+        self.yfinance_interval = yfinance_interval
         self.bybit = BybitKline()
         self.yfinance = YFinanceKline()
         self.writer = InfluxDBWriter(batch_size=batch_size)
@@ -174,7 +219,7 @@ class HistoricalBackfill:
                 df = self.bybit.fetch_historical_kline(
                     currency=symbol,
                     days=self.days,
-                    resolution="D"  # Daily candles (use 60 for 1 hour, "D" for daily)
+                    resolution=self.bybit_resolution
                 )
                 
                 if not df.empty:
@@ -206,7 +251,7 @@ class HistoricalBackfill:
                 df = self.yfinance.fetch_historical_kline(
                     symbol=symbol,
                     days=self.days,
-                    interval="1h"  # Daily candles
+                    interval=self.yfinance_interval
                 )
                 
                 if not df.empty:
@@ -301,14 +346,27 @@ def main():
         log_level=config["LOG_LEVEL"]
     )
     
+    # Print backfill settings for user confirmation
+    logger.info("="*80)
+    logger.info("BACKFILL CONFIGURATION")
+    logger.info("="*80)
+    logger.info(f"Days to backfill:        {BACKFILL_CONFIG['DAYS']}")
+    logger.info(f"Bybit resolution:        {BACKFILL_CONFIG['BYBIT_RESOLUTION']}")
+    logger.info(f"YFinance interval:       {BACKFILL_CONFIG['YFINANCE_INTERVAL']}")
+    logger.info(f"Assets file:             {BACKFILL_CONFIG['ASSETS_FILE']}")
+    logger.info(f"Batch size:              {BACKFILL_CONFIG['BATCH_SIZE']}")
+    logger.info("="*80)
+    
     try:
         # Create and run backfill
         backfill = HistoricalBackfill(
             logger=logger,
-            batch_size=config["INFLUXDB_BATCH_SIZE"],
-            days=60  # Fetch 1 year of historical data
+            batch_size=BACKFILL_CONFIG["BATCH_SIZE"],
+            days=BACKFILL_CONFIG["DAYS"],
+            bybit_resolution=BACKFILL_CONFIG["BYBIT_RESOLUTION"],
+            yfinance_interval=BACKFILL_CONFIG["YFINANCE_INTERVAL"]
         )
-        backfill.run(coins_file="assets.txt")
+        backfill.run(coins_file=BACKFILL_CONFIG["ASSETS_FILE"])
         
     except KeyboardInterrupt:
         logger.info("Historical backfill interrupted by user")
