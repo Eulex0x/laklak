@@ -206,7 +206,7 @@ class HistoricalBackfill:
                 df = self.yfinance.fetch_historical_kline(
                     symbol=symbol,
                     days=self.days,
-                    interval="1d"  # Daily candles
+                    interval="1h"  # Daily candles
                 )
                 
                 if not df.empty:
@@ -306,7 +306,7 @@ def main():
         backfill = HistoricalBackfill(
             logger=logger,
             batch_size=config["INFLUXDB_BATCH_SIZE"],
-            days=365  # Fetch 1 year of historical data
+            days=60  # Fetch 1 year of historical data
         )
         backfill.run(coins_file="assets.txt")
         
