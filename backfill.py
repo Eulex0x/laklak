@@ -32,13 +32,13 @@ BACKFILL_CONFIG = {
     # ═══════════════════════════════════════════════════════════════════════
     # Time Period Settings
     # ═══════════════════════════════════════════════════════════════════════
-    "DAYS": 60,                         # Number of days to backfill (e.g., 7, 30, 365)
+    "DAYS": 90,                         # Number of days to backfill (e.g., 7, 30, 365)
                                         # Supports decimal: 0.5 = 12 hours, 0.042 = 1 hour
     
     # ═══════════════════════════════════════════════════════════════════════
     # Timeframe/Interval Settings
     # ═══════════════════════════════════════════════════════════════════════
-    "BYBIT_RESOLUTION": "60",            # Bybit timeframe:
+    "BYBIT_RESOLUTION": "240",            # Bybit timeframe:
                                         #   "1"  = 1 minute
                                         #   "5"  = 5 minutes
                                         #   "15" = 15 minutes
@@ -60,7 +60,7 @@ BACKFILL_CONFIG = {
     # ═══════════════════════════════════════════════════════════════════════
     # Performance Settings
     # ═══════════════════════════════════════════════════════════════════════
-    "BATCH_SIZE": 2,                    # Number of records to batch (2-100)
+    "BATCH_SIZE": 1000,                 # Number of records to batch (2-100)
                                         # Lower = safer, Higher = faster
 }
 
