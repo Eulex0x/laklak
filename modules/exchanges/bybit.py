@@ -7,6 +7,62 @@ class BybitKline:
     BASE_URL = os.getenv('BYBIT_API_URL', "https://api.bybit.com")
     
     @staticmethod
+    def fetch_funding_rate_period(currency: str) -> dict:
+        """
+        Fetch funding rate settlement period for a perpetual contract from Bybit.
+        
+        This returns metadata about the funding rate period (e.g., 8 hours, 4 hours, 1 hour).
+        This information is static and doesn't change once set for a contract.
+        
+        Args:
+            currency (str): Trading pair (e.g., "BTCUSDT")
+            
+        Returns:
+            dict: Dictionary with keys:
+                - 'fundingInterval': The funding rate interval in hours (e.g., 8, 4, 1)
+                - 'currency': The trading pair
+                - 'timestamp': When this data was fetched
+        """
+        try:
+            url = f"{BybitKline.BASE_URL}/v5/market/instruments-info"
+            params = {
+                "category": "linear",
+                "symbol": currency
+            }
+            
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get("retCode") != 0:
+                print(f"API error fetching funding period for {currency}: {result.get('retMsg', 'Unknown error')}")
+                return {}
+            
+            if "result" not in result or "list" not in result["result"] or not result["result"]["list"]:
+                print(f"No instrument info returned for {currency}")
+                return {}
+            
+            instrument = result["result"]["list"][0]
+            
+            # Extract funding interval (in minutes, convert to hours)
+            funding_interval_minutes = int(instrument.get("fundingInterval", 0))
+            funding_interval_hours = funding_interval_minutes // 60  # Convert minutes to hours
+            
+            return {
+                "currency": currency,
+                "fundingInterval": funding_interval_hours,
+                "fundingIntervalMinutes": funding_interval_minutes,
+                "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)
+            }
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Failed to fetch funding rate period for {currency}: {e}")
+            return {}
+        except Exception as e:
+            print(f"Error processing funding rate period for {currency}: {e}")
+            return {}
+
+    @staticmethod
     def fetch_funding_rate(currency, days) -> pd.DataFrame:
         """
         Fetch funding rate history for a perpetual contract.
@@ -110,7 +166,7 @@ class BybitKline:
                     "limit": 1000
                 }
                 
-                response = requests.get(url, params=params)
+                response = requests.get(url, params=params, timeout=10)
                 response.raise_for_status()
                 result = response.json()
                 

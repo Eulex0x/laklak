@@ -2,6 +2,7 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta, timezone
 import os
+from influxdb import InfluxDBClient
 
 
 class BitunixKline:
@@ -92,6 +93,191 @@ class BitunixKline:
         except Exception as e:
             print(f"Error processing kline data for {currency} from Bitunix: {e}")
             return pd.DataFrame()
+    
+    @staticmethod
+    def fetch_funding_rate_period(currency: str, days: int = 7) -> dict:
+        """
+        Get the funding rate settlement period for Bitunix from the internal API.
+        
+        First tries the official Bitunix market settings API endpoint, then falls back
+        to InfluxDB analysis if the API fails.
+        
+        Args:
+            currency (str): Trading pair (e.g., "BTCUSDT")
+            days (int): Days for InfluxDB fallback analysis (default: 7)
+            
+        Returns:
+            dict: Dictionary with keys:
+                - 'fundingInterval': The funding rate interval in hours
+                - 'currency': The trading pair
+                - 'timestamp': When this data was fetched
+                - 'method': 'api' or 'influxdb_analysis' or 'default'
+                - 'note': Description of how data was obtained
+        """
+        try:
+            # First try the internal API endpoint
+            api_url = "https://api.bitunix.com/futures/futures/market/setting/list"
+            headers = {
+                "accept": "*/*",
+                "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+            }
+            
+            response = requests.get(api_url, headers=headers, timeout=10)
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get("code") == 0 and "data" in result:
+                data = result["data"]
+                # Navigate through the response structure
+                if "tradingGroups" in data and len(data["tradingGroups"]) > 0:
+                    symbols = data["tradingGroups"][0].get("symbols", [])
+                    contract = next((s for s in symbols if s.get("symbol") == currency), None)
+                    
+                    if contract and "fundingInterval" in contract:
+                        funding_interval = int(contract["fundingInterval"])
+                        return {
+                            "currency": currency,
+                            "fundingInterval": funding_interval,
+                            "fundingIntervalMinutes": funding_interval * 60,
+                            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+                            "method": "api",
+                            "note": "Retrieved from Bitunix market settings API"
+                        }
+        except Exception as api_error:
+            print(f"API lookup failed for {currency}, trying InfluxDB: {api_error}")
+        
+        # Fallback to InfluxDB analysis
+        try:
+            # Connect to InfluxDB
+            host = os.getenv('INFLUXDB_HOST', 'localhost')
+            port = int(os.getenv('INFLUXDB_PORT', 8086))
+            database = os.getenv('INFLUXDB_DATABASE', 'market_data')
+            
+            client = InfluxDBClient(host=host, port=port, database=database)
+            
+            # Query historical funding rates for Bitunix
+            symbol_key = f"{currency}_fundingrate_bitunix"
+            query = f'''SELECT "close" FROM "market_data" 
+                       WHERE "symbol"='{symbol_key}' AND "exchange"='Bitunix' 
+                       AND time > now() - {days}d 
+                       ORDER BY time DESC'''
+            
+            result = client.query(query)
+            client.close()
+            
+            if not result:
+                # No data in InfluxDB, use default
+                return {
+                    "currency": currency,
+                    "fundingInterval": 8,
+                    "fundingIntervalMinutes": 480,
+                    "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+                    "method": "default",
+                    "note": "No historical funding rate data in InfluxDB"
+                }
+            
+            # Extract funding rates with timestamps
+            funding_rates = []
+            for point in result.get_points():
+                try:
+                    timestamp = pd.Timestamp(point['time'])
+                    rate = float(point['close'])
+                    funding_rates.append({'time': timestamp, 'rate': rate})
+                except (ValueError, TypeError, KeyError):
+                    continue
+            
+            if len(funding_rates) < 2:
+                return {
+                    "currency": currency,
+                    "fundingInterval": 8,
+                    "fundingIntervalMinutes": 480,
+                    "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+                    "method": "default",
+                    "note": "Insufficient funding rate data points"
+                }
+            
+            # Sort by time
+            funding_rates.sort(key=lambda x: x['time'])
+            
+            # Calculate intervals between distinct funding rate changes
+            intervals_hours = []
+            last_rate = None
+            last_change_time = None
+            
+            for rate_info in funding_rates:
+                current_rate = rate_info['rate']
+                current_time = rate_info['time']
+                
+                # Only count when the rate changes
+                if last_rate is not None and current_rate != last_rate and last_change_time is not None:
+                    interval = (current_time - last_change_time).total_seconds() / 3600
+                    intervals_hours.append(interval)
+                    last_change_time = current_time
+                elif last_rate is None:
+                    last_change_time = current_time
+                
+                last_rate = current_rate
+            
+            if not intervals_hours:
+                # No distinct changes found, use time between all points
+                intervals_hours = []
+                for i in range(1, len(funding_rates)):
+                    interval = (funding_rates[i]['time'] - funding_rates[i-1]['time']).total_seconds() / 3600
+                    intervals_hours.append(interval)
+            
+            if intervals_hours:
+                # Filter out outliers (gaps > 24 hours typically indicate collection stops)
+                regular_intervals = [x for x in intervals_hours if x <= 24]
+                
+                if regular_intervals:
+                    # Find the most common interval (round to 0.5 hour)
+                    rounded_intervals = [round(x * 2) / 2 for x in regular_intervals]
+                    from collections import Counter
+                    interval_counts = Counter(rounded_intervals)
+                    most_common_rounded = interval_counts.most_common(1)[0][0]
+                else:
+                    most_common_rounded = 8
+                
+                # Determine period based on analysis
+                if most_common_rounded > 0 and most_common_rounded < 1:
+                    # Sub-hourly updates (real-time or continuous)
+                    period = 8  # Use standard period when rates update continuously
+                elif most_common_rounded < 2:
+                    period = 1
+                elif most_common_rounded < 6:
+                    period = 4
+                else:
+                    period = 8
+                
+                return {
+                    "currency": currency,
+                    "fundingInterval": int(period),
+                    "fundingIntervalMinutes": int(period * 60),
+                    "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+                    "method": "influxdb_analysis",
+                    "note": f"Analysis of {len(regular_intervals)} rate changes"
+                }
+            
+            # Default fallback
+            return {
+                "currency": currency,
+                "fundingInterval": 8,
+                "fundingIntervalMinutes": 480,
+                "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+                "method": "default",
+                "note": "Could not analyze intervals"
+            }
+            
+        except Exception as e:
+            print(f"Error analyzing funding rate period from InfluxDB for {currency}: {e}")
+            return {
+                "currency": currency,
+                "fundingInterval": 8,
+                "fundingIntervalMinutes": 480,
+                "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+                "method": "default",
+                "note": f"Error: {str(e)[:50]}"
+            }
     
     @staticmethod
     def fetch_funding_rate(currency) -> pd.DataFrame:

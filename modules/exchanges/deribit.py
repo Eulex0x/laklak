@@ -37,7 +37,7 @@ class DeribitDVOL:
                     "resolution": resolution 
                 }
                 
-                response = requests.get(url, params=params)
+                response = requests.get(url, params=params, timeout=10)
                 response.raise_for_status()
                 result = response.json()
                 

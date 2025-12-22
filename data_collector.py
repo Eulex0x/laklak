@@ -38,30 +38,39 @@ def setup_logging(log_file: str, log_level: str = "INFO") -> logging.Logger:
     
     Args:
         log_file (str): Path to the log file
-        log_level (str): Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        log_level (str): Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL, SILENT)
+                        Use "SILENT" to disable console output completely
         
     Returns:
         logging.Logger: Configured logger instance
     """
     logger = logging.getLogger("data_collector")
-    logger.setLevel(getattr(logging, log_level))
+    
+    # Handle SILENT mode - set to highest level to suppress all console output
+    if log_level.upper() == "SILENT":
+        logger.setLevel(logging.CRITICAL + 1)  # Higher than CRITICAL
+    else:
+        logger.setLevel(getattr(logging, log_level))
     
     # Create log directory if it doesn't exist
     log_dir = os.path.dirname(log_file)
     if log_dir and not os.path.exists(log_dir):
         os.makedirs(log_dir, exist_ok=True)
     
-    # File handler with rotation
+    # File handler with rotation (always logs regardless of SILENT mode)
     file_handler = logging.handlers.RotatingFileHandler(
         log_file,
         maxBytes=10 * 1024 * 1024,  # 10 MB
         backupCount=5  # Keep 5 backup files
     )
-    file_handler.setLevel(getattr(logging, log_level))
+    file_handler.setLevel(logging.DEBUG)  # File always gets all messages
     
-    # Console handler
+    # Console handler (can be suppressed in SILENT mode)
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(getattr(logging, log_level))
+    if log_level.upper() == "SILENT":
+        console_handler.setLevel(logging.CRITICAL + 1)  # Suppress console output
+    else:
+        console_handler.setLevel(getattr(logging, log_level))
     
     # Formatter
     formatter = logging.Formatter(
@@ -235,6 +244,26 @@ class DataCollector:
             
             except Exception as e:
                 self.logger.debug(f"Bybit: Failed to process funding rate for {symbol}: {e}")
+            
+            # Fetch and store Bybit funding rate period (metadata)
+            try:
+                self.logger.debug(f"Fetching Bybit funding rate period for {symbol}")
+                
+                period_info = self.bybit.fetch_funding_rate_period(symbol)
+                
+                if period_info and "fundingInterval" in period_info:
+                    period_hours = period_info["fundingInterval"]
+                    if self.writer.write_funding_rate_period(
+                        symbol=symbol,
+                        exchange="Bybit",
+                        period_hours=period_hours
+                    ):
+                        self.logger.debug(f"Bybit: Funding rate period for {symbol}: {period_hours} hours")
+                else:
+                    self.logger.debug(f"Bybit: Could not determine funding rate period for {symbol}")
+            
+            except Exception as e:
+                self.logger.debug(f"Bybit: Failed to process funding rate period for {symbol}: {e}")
         
         # Fetch Bitunix Data (only if specified)
         if "bitunix" in exchanges:
@@ -297,6 +326,26 @@ class DataCollector:
             
             except Exception as e:
                 self.logger.debug(f"Bitunix: Failed to process funding rate for {symbol}: {e}")
+            
+            # Fetch and store Bitunix funding rate period (metadata from InfluxDB analysis)
+            try:
+                self.logger.debug(f"Fetching Bitunix funding rate period for {symbol}")
+                
+                period_info = self.bitunix.fetch_funding_rate_period(symbol)
+                
+                if period_info and "fundingInterval" in period_info:
+                    period_hours = period_info["fundingInterval"]
+                    if self.writer.write_funding_rate_period(
+                        symbol=symbol,
+                        exchange="Bitunix",
+                        period_hours=period_hours
+                    ):
+                        self.logger.debug(f"Bitunix: Funding rate period for {symbol}: {period_hours} hours (method: {period_info.get('method')})")
+                else:
+                    self.logger.debug(f"Bitunix: Could not determine funding rate period for {symbol}")
+            
+            except Exception as e:
+                self.logger.debug(f"Bitunix: Failed to process funding rate period for {symbol}: {e}")
         
         # Fetch Deribit DVOL Data (only if specified)
         if "deribit" in exchanges:
@@ -443,16 +492,47 @@ class DataCollector:
 # ============================================================================
 
 def main():
-    """Main entry point for the data collector."""
+    """Main entry point for the data collector.
+    
+    Command-line arguments:
+        debug=true : Enable debug mode with detailed logging (optional)
+    
+    By default, the script runs in SILENT mode (no console output, only file logging).
+    Use debug=true to see detailed console output for troubleshooting.
+    
+    Examples:
+        python3 data_collector.py              # Silent mode (no console output)
+        python3 data_collector.py debug=true   # Debug mode (detailed console output)
+    """
+    
+    # Parse command-line arguments
+    debug_mode = False
+    for arg in sys.argv[1:]:
+        if arg.lower() == "debug=true":
+            debug_mode = True
+            break
     
     # Load configuration
     config = get_config()
     
+    # Determine log level:
+    # - debug=true flag → DEBUG level
+    # - no flag → SILENT level (no console output)
+    if debug_mode:
+        log_level = "DEBUG"
+    else:
+        log_level = "SILENT"
+    
     # Set up logging
     logger = setup_logging(
         log_file=config["LOG_FILE"],
-        log_level=config["LOG_LEVEL"]
+        log_level=log_level
     )
+    
+    if debug_mode:
+        logger.info("=" * 80)
+        logger.info("DEBUG MODE ENABLED - Detailed logging active")
+        logger.info("=" * 80)
     
     try:
         # Create and run collector

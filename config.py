@@ -26,7 +26,7 @@ SETTINGS = {
     # ═══════════════════════════════════════════════════════════════════════
     # InfluxDB Configuration
     # ═══════════════════════════════════════════════════════════════════════
-    "INFLUXDB_HOST": "192.168.4.2",       # InfluxDB server host
+    "INFLUXDB_HOST": "192.168.4.3",       # InfluxDB server host
     "INFLUXDB_PORT": 8086,              # InfluxDB server port
     "INFLUXDB_DATABASE": "market_data", # Database name for storing data
     "INFLUXDB_USERNAME": None,          # InfluxDB username (optional)

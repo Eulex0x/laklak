@@ -12,10 +12,13 @@ Features:
 
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import pandas as pd
 from influxdb import InfluxDBClient
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +71,8 @@ class InfluxDBWriter:
                 port=self.port,
                 username=self.username,
                 password=self.password,
-                database=self.database
+                database=self.database,
+                timeout=10
             )
             
             # Test connection
@@ -360,3 +364,75 @@ class InfluxDBWriter:
     def get_current_batch_count(self) -> int:
         """Get the number of points currently in the batch."""
         return len(self.batch)
+
+    def funding_rate_period_exists(self, symbol: str, exchange: str, period_hours: int) -> bool:
+        """
+        Check if the funding rate period already exists in InfluxDB with the same value.
+        
+        Args:
+            symbol (str): The trading symbol (e.g., BTCUSDT)
+            exchange (str): The exchange name (e.g., Bybit)
+            period_hours (int): The funding rate period in hours
+            
+        Returns:
+            bool: True if the period already exists with the same value, False otherwise
+        """
+        try:
+            query = f'SELECT last(period_hours) FROM funding_rate_period WHERE symbol=\'{symbol}\' AND exchange=\'{exchange}\''
+            result = self.client.query(query)
+            
+            if result and len(result) > 0:
+                points = list(result.get_points())
+                if points and len(points) > 0:
+                    last_value = points[0].get('last')
+                    if last_value is not None:
+                        existing_period = int(last_value)
+                        return existing_period == period_hours
+            
+            return False
+        except Exception as e:
+            logger.debug(f"Failed to check funding rate period for {symbol}: {e}")
+            return False
+
+    def write_funding_rate_period(self, symbol: str, exchange: str, period_hours: int) -> bool:
+        """
+        Write funding rate period metadata to a separate InfluxDB measurement.
+        
+        Since the funding rate period is static for each contract, this is stored
+        separately from time-series market data for reference. Only writes if the
+        period doesn't already exist with the same value.
+        
+        Args:
+            symbol (str): The trading symbol (e.g., BTCUSDT)
+            exchange (str): The exchange name (e.g., Bybit)
+            period_hours (int): The funding rate period in hours (e.g., 8, 4, 1)
+            
+        Returns:
+            bool: True if successful or already exists, False on error
+        """
+        # Check if period already exists with the same value
+        if self.funding_rate_period_exists(symbol, exchange, period_hours):
+            logger.debug(f"Funding rate period already exists for {symbol} ({exchange}): {period_hours} hours")
+            return True
+        
+        try:
+            point = {
+                "measurement": "funding_rate_period",
+                "tags": {
+                    "exchange": exchange
+                },
+                "time": int(datetime.now(timezone.utc).timestamp() * 1000),
+                "fields": {
+                    "symbol": symbol,
+                    "period_hours": period_hours
+                }
+            }
+            
+            self.client.write_points([point], time_precision='ms')
+            logger.info(f"Successfully wrote funding rate period for {symbol} ({exchange}): {period_hours} hours")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to write funding rate period for {symbol}: {e}")
+            return False
+

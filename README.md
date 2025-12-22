@@ -184,16 +184,44 @@ Laklak automatically:
 python3 data_collector.py
 ```
 
-**Success!** You'll see:
+**Running with Debug Mode** 🔍
+
+By default, the collector runs silently (no console output). To see detailed debug information:
+
+```bash
+python3 data_collector.py debug=true
+```
+
+**Debug Mode vs. Silent Mode:**
+
+| Mode | Command | Console Output | File Logging | Use Case |
+|------|---------|---|---|---|
+| **Silent** (default) | `python3 data_collector.py` | ❌ None | ✅ Active | Production/Cron jobs |
+| **Debug** | `python3 data_collector.py debug=true` | ✅ Detailed | ✅ Active | Troubleshooting & monitoring |
+
+**Debug Mode Output Example:**
 
 ```
-2024-12-02 12:00:00 - INFO - Starting market data collection
-2024-12-02 12:00:00 - INFO - Loaded 8 assets from assets.txt
-2024-12-02 12:00:01 - INFO - [1/8] Processing BTCUSDT from Bybit
-2024-12-02 12:00:02 - INFO - ✓ Successfully wrote 24 points for BTCUSDT_BYBIT
-2024-12-02 12:00:03 - INFO - [2/8] Processing BTC_DVOL from Deribit
-2024-12-02 12:00:04 - INFO - ✓ Successfully wrote 24 points for BTC_DVOL
+2024-12-02 12:00:00 - DEBUG - Fetching Bybit kline data for BTCUSDT
+2024-12-02 12:00:01 - DEBUG - Connection established to Bybit API
+2024-12-02 12:00:02 - INFO - Bybit: Successfully processed 1000 kline points for BTCUSDT_BYBIT
+2024-12-02 12:00:02 - DEBUG - Fetching Bybit funding rate for BTCUSDT
+2024-12-02 12:00:03 - DEBUG - Funding rate period already exists for BTCUSDT (Bybit): 8 hours
 ...
+```
+
+**File Logging Note:** Whether you run in silent or debug mode, all logs are always written to `logs/collector.log` for auditing and diagnostics.
+
+**Success!** In silent mode, you'll see no output, but data will be collected and stored:
+
+```
+(no console output - data collecting silently in the background)
+```
+
+Check the log file to verify:
+
+```bash
+tail -f logs/collector.log
 ```
 
 ### Automate Collection (Optional)
