@@ -32,20 +32,20 @@ BACKFILL_CONFIG = {
     # ═══════════════════════════════════════════════════════════════════════
     # Time Period Settings
     # ═══════════════════════════════════════════════════════════════════════
-    "DAYS": 90,                         # Number of days to backfill (e.g., 7, 30, 365)
+    "DAYS": 7,                         # Number of days to backfill (e.g., 7, 30, 365)
                                         # Supports decimal: 0.5 = 12 hours, 0.042 = 1 hour
     
     # ═══════════════════════════════════════════════════════════════════════
     # Timeframe/Interval Settings
     # ═══════════════════════════════════════════════════════════════════════
-    "BYBIT_RESOLUTION": "240",            # Bybit timeframe:
+    "BYBIT_RESOLUTION": "1",            # Bybit timeframe:
                                         #   "1"  = 1 minute
                                         #   "5"  = 5 minutes
                                         #   "15" = 15 minutes
                                         #   "60" = 1 hour
                                         #   "D"  = 1 day (Daily)
     
-    "YFINANCE_INTERVAL": "1h",          # YFinance interval:
+    "YFINANCE_INTERVAL": "1m",          # YFinance interval:
                                         #   "1m"  = 1 minute
                                         #   "5m"  = 5 minutes
                                         #   "15m" = 15 minutes
