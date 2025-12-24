@@ -20,6 +20,7 @@ import logging
 import logging.handlers
 import sys
 import os
+import time
 from datetime import datetime, timedelta
 
 from modules.exchanges.bybit import BybitKline
@@ -514,6 +515,24 @@ class HistoricalBackfill:
             exchanges_str = "+".join(exchanges)
             self.logger.info(f"[{i}/{len(coins)}] Backfilling {symbol} ({exchanges_str})")
             self.backfill_coin(symbol, exchanges)
+            
+            # Cooldown every 100 coins to avoid rate limiting
+            if i % 100 == 0 and i < len(coins):
+                self.logger.info("="*80)
+                self.logger.info(f"⏸️  RATE LIMIT COOLDOWN: Processed {i} coins, pausing for 10 minutes...")
+                self.logger.info(f"    Resume at: {(datetime.now() + timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')}")
+                self.logger.info("="*80)
+                
+                # Sleep for 10 minutes (600 seconds)
+                try:
+                    for remaining in range(600, 0, -1):
+                        if remaining % 60 == 0 or remaining <= 10:
+                            self.logger.info(f"    ⏳ {remaining} seconds remaining...")
+                        time.sleep(1)
+                except KeyboardInterrupt:
+                    self.logger.warning("Cooldown interrupted by user, resuming immediately")
+                
+                self.logger.info("✅ Cooldown complete, resuming backfill...")
         
         # Flush remaining data
         self.logger.info("Flushing remaining data to InfluxDB...")
