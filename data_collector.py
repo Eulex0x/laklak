@@ -195,7 +195,7 @@ class DataCollector:
                 
                 if not df_bybit.empty:
                     # Write to InfluxDB with exchange-specific symbol
-                    db_symbol = f"{symbol}_BYBIT"
+                    db_symbol = f"{symbol}"
                     valid_points = self.writer.write_market_data(
                         df=df_bybit,
                         symbol=db_symbol,
@@ -226,7 +226,7 @@ class DataCollector:
                 
                 if not df_funding.empty:
                     # Write to InfluxDB with naming: SYMBOL_fundingrate_bybit
-                    db_symbol = f"{symbol}_fundingrate_bybit"
+                    db_symbol = f"{symbol}"
                     valid_points = self.writer.write_market_data(
                         df=df_funding,
                         symbol=db_symbol,
@@ -279,7 +279,7 @@ class DataCollector:
                 
                 if not df_bitunix.empty:
                     # Write to InfluxDB with exchange-specific symbol
-                    db_symbol = f"{symbol}_BITUNIX"
+                    db_symbol = f"{symbol}"
                     valid_points = self.writer.write_market_data(
                         df=df_bitunix,
                         symbol=db_symbol,
@@ -307,7 +307,7 @@ class DataCollector:
                 
                 if not df_funding_bitunix.empty:
                     # Write to InfluxDB with naming: SYMBOL_fundingrate_bitunix
-                    db_symbol = f"{symbol}_fundingrate_bitunix"
+                    db_symbol = f"{symbol}"
                     valid_points = self.writer.write_market_data(
                         df=df_funding_bitunix,
                         symbol=db_symbol,
@@ -367,7 +367,7 @@ class DataCollector:
                 if not df_deribit.empty:
                     # Write to InfluxDB with data-type specific symbol
                     # DVOL is volatility, not price, so use descriptive naming
-                    db_symbol = f"{base_currency}_DVOL"
+                    db_symbol = f"{base_currency}"
                     valid_points = self.writer.write_market_data(
                         df=df_deribit,
                         symbol=db_symbol,
@@ -409,7 +409,7 @@ class DataCollector:
                 
                 if not df_yfinance.empty:
                     # Write to InfluxDB with exchange-specific symbol
-                    db_symbol = f"{symbol}_YFINANCE"
+                    db_symbol = f"{symbol}"
                     valid_points = self.writer.write_market_data(
                         df=df_yfinance,
                         symbol=db_symbol,
