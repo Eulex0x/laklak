@@ -62,6 +62,16 @@ BACKFILL_CONFIG = {
                                         #   "1d"  = 1 day (Daily)
     
     # ═══════════════════════════════════════════════════════════════════════
+    # Exchange Settings - Enable/Disable exchanges to backfill
+    # ═══════════════════════════════════════════════════════════════════════
+    "ENABLED_EXCHANGES": {
+        "bybit": True,                  # Primary exchange (recommended: always enabled)
+        "yfinance": True,               # Yahoo Finance (only for BTC, ETH, XRP, SOL)
+        "bitunix": True,                # Alternative exchange
+        "deribit": False,               # Deribit DVOL data (disable to skip volatility index)
+    },
+    
+    # ═══════════════════════════════════════════════════════════════════════
     # File Settings
     # ═══════════════════════════════════════════════════════════════════════
     "ASSETS_FILE": "assets.txt",        # File containing list of coins/assets
@@ -272,7 +282,7 @@ class HistoricalBackfill:
         self.stats["total_chunks"] += total_chunks
         
         # Fetch from Bybit if specified
-        if "bybit" in exchanges:
+        if "bybit" in exchanges and BACKFILL_CONFIG["ENABLED_EXCHANGES"]["bybit"]:
             try:
                 for chunk_num, chunk_start in enumerate(chunk_starts, 1):
                     chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
@@ -322,7 +332,7 @@ class HistoricalBackfill:
         # Fetch from YFinance if specified (only for supported coins: BTC, ETH, XRP, SOL)
         yfinance_supported = {"BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT"}
         
-        if "yfinance" in exchanges and symbol in yfinance_supported:
+        if "yfinance" in exchanges and symbol in yfinance_supported and BACKFILL_CONFIG["ENABLED_EXCHANGES"]["yfinance"]:
             try:
                 for chunk_num, chunk_start in enumerate(chunk_starts, 1):
                     chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
@@ -373,7 +383,7 @@ class HistoricalBackfill:
                 self.logger.error(f"YFinance: Failed to backfill {symbol}: {e}", exc_info=False)
         
         # Fetch from Bitunix if specified
-        if "bitunix" in exchanges:
+        if "bitunix" in exchanges and BACKFILL_CONFIG["ENABLED_EXCHANGES"]["bitunix"]:
             try:
                 for chunk_num, chunk_start in enumerate(chunk_starts, 1):
                     chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
@@ -421,7 +431,7 @@ class HistoricalBackfill:
                 self.logger.error(f"Bitunix: Failed to backfill {symbol}: {e}", exc_info=False)
         
         # Fetch from Deribit if specified
-        if "deribit" in exchanges:
+        if "deribit" in exchanges and BACKFILL_CONFIG["ENABLED_EXCHANGES"]["deribit"]:
             try:
                 for chunk_num, chunk_start in enumerate(chunk_starts, 1):
                     chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
@@ -552,6 +562,11 @@ def main():
     logger.info(f"YFinance interval:       {BACKFILL_CONFIG['YFINANCE_INTERVAL']}")
     logger.info(f"Assets file:             {BACKFILL_CONFIG['ASSETS_FILE']}")
     logger.info(f"Batch size:              {BACKFILL_CONFIG['BATCH_SIZE']}")
+    logger.info("-"*80)
+    logger.info("ENABLED EXCHANGES:")
+    for exchange, enabled in BACKFILL_CONFIG['ENABLED_EXCHANGES'].items():
+        status = "✓ ENABLED" if enabled else "✗ DISABLED"
+        logger.info(f"  {exchange.ljust(12)}: {status}")
     logger.info("="*80)
     
     try:
