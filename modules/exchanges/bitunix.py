@@ -9,22 +9,31 @@ class BitunixKline:
     BASE_URL = os.getenv('BITUNIX_API_URL', "https://fapi.bitunix.com")
     
     @staticmethod
-    def fetch_historical_kline(currency, days, resolution) -> pd.DataFrame:
+    def fetch_historical_kline(currency, days, resolution, start_time=None, end_time=None) -> pd.DataFrame:
         """
         Fetch historical kline/candlestick data from Bitunix.
         
         Args:
             currency (str): Trading pair (e.g., "BTCUSDT")
-            days (int): Number of days of history
+            days (int): Number of days of history (used if start_time/end_time not provided)
             resolution (int): Interval in minutes (e.g., 1, 5, 15, 30, 60)
+            start_time: Optional start datetime (overrides days calculation)
+            end_time: Optional end datetime (default is now)
             
         Returns:
             pd.DataFrame: DataFrame with columns ['time', 'open', 'high', 'low', 'close', 'volume']
         """
         try:
-            # Calculate timestamps (Bitunix uses milliseconds)
-            end_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
-            start_timestamp = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
+            # Use provided timestamps or calculate from days
+            if end_time is None:
+                end_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+            else:
+                end_timestamp = int(end_time.timestamp() * 1000) if hasattr(end_time, 'timestamp') else int(end_time)
+            
+            if start_time is None:
+                start_timestamp = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
+            else:
+                start_timestamp = int(start_time.timestamp() * 1000) if hasattr(start_time, 'timestamp') else int(start_time)
             
             # Convert resolution to interval format (e.g., "15m", "1h", "1d")
             if resolution < 60:
@@ -66,15 +75,30 @@ class BitunixKline:
             # Convert to DataFrame
             df = pd.DataFrame(candles)
             
-            # Convert timestamp to datetime (Bitunix uses milliseconds)
-            df['time'] = pd.to_datetime(pd.to_numeric(df['time']), unit='ms', utc=True)
+            # Ensure all fields are converted to proper types
+            # Convert timestamp to datetime (Bitunix uses milliseconds or seconds)
+            try:
+                # Try milliseconds first
+                time_numeric = pd.to_numeric(df['time'], errors='coerce')
+                # If values are too large, they're likely milliseconds; if small, seconds
+                if time_numeric.max() > 10000000000:  # Likely milliseconds (year 2286 in seconds)
+                    df['time'] = pd.to_datetime(time_numeric, unit='ms', utc=True)
+                else:
+                    df['time'] = pd.to_datetime(time_numeric, unit='s', utc=True)
+            except Exception as e:
+                print(f"Error converting time field for {currency}: {e}")
+                return pd.DataFrame()
             
-            # Convert numeric fields
-            df['open'] = pd.to_numeric(df['open'])
-            df['high'] = pd.to_numeric(df['high'])
-            df['low'] = pd.to_numeric(df['low'])
-            df['close'] = pd.to_numeric(df['close'])
-            df['volume'] = pd.to_numeric(df['baseVol'])  # Use baseVol as volume
+            # Convert numeric fields with error handling
+            try:
+                df['open'] = pd.to_numeric(df['open'], errors='coerce')
+                df['high'] = pd.to_numeric(df['high'], errors='coerce')
+                df['low'] = pd.to_numeric(df['low'], errors='coerce')
+                df['close'] = pd.to_numeric(df['close'], errors='coerce')
+                df['volume'] = pd.to_numeric(df['baseVol'], errors='coerce')  # Use baseVol as volume
+            except Exception as e:
+                print(f"Error converting numeric fields for {currency}: {e}")
+                return pd.DataFrame()
             
             # Select and reorder columns
             df = df[['time', 'open', 'high', 'low', 'close', 'volume']]

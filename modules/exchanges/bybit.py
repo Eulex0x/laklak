@@ -145,11 +145,18 @@ class BybitKline:
             return pd.DataFrame()
     
     @staticmethod
-    def fetch_historical_kline(currency, days, resolution) -> pd.DataFrame:
+    def fetch_historical_kline(currency, days, resolution, start_time=None, end_time=None) -> pd.DataFrame:
         try:
-            # Calculate timestamps
-            end_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
-            start_timestamp = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
+            # Use provided timestamps or calculate from days
+            if end_time is None:
+                end_timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+            else:
+                end_timestamp = int(end_time.timestamp() * 1000) if hasattr(end_time, 'timestamp') else int(end_time)
+            
+            if start_time is None:
+                start_timestamp = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
+            else:
+                start_timestamp = int(start_time.timestamp() * 1000) if hasattr(start_time, 'timestamp') else int(start_time)
             
             all_data = []
             current_end = end_timestamp

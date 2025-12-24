@@ -5,23 +5,32 @@ from datetime import datetime, timedelta, timezone
 class YFinanceKline:
     
     @staticmethod
-    def fetch_historical_kline(symbol: str, days: int, interval: str) -> pd.DataFrame:
+    def fetch_historical_kline(symbol: str, days: int, interval: str, start_time=None, end_time=None) -> pd.DataFrame:
         """
         Fetch historical OHLCV data from Yahoo Finance.
         
         Args:
             symbol: The ticker symbol (e.g., BTC-USD, AAPL, ^GSPC)
-            days: Number of days to fetch
+            days: Number of days to fetch (used if start_time/end_time not provided)
             interval: Time resolution - "1m", "2m", "5m", "15m", "30m", "60m", "90m", 
                      "1h", "1d", "5d", "1wk", "1mo", "3mo"
+            start_time: Optional start datetime (overrides days calculation)
+            end_time: Optional end datetime (default is now)
         
         Returns:
             DataFrame with columns: time, open, high, low, close, volume
         """
         try:
-            # Calculate start and end dates
-            end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=days)
+            # Use provided timestamps or calculate from days
+            if end_time is None:
+                end_date = datetime.now(timezone.utc)
+            else:
+                end_date = end_time if isinstance(end_time, datetime) else datetime.fromtimestamp(end_time, tz=timezone.utc)
+            
+            if start_time is None:
+                start_date = end_date - timedelta(days=days)
+            else:
+                start_date = start_time if isinstance(start_time, datetime) else datetime.fromtimestamp(start_time, tz=timezone.utc)
             
             # Create ticker object
             ticker = yf.Ticker(symbol)

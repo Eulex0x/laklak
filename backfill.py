@@ -1,12 +1,15 @@
 """
 Historical Data Backfill Script for InfluxDB
 
-This script fetches historical 1-hour OHLCV data for multiple coins from Bybit
-and stores it in InfluxDB. This is a one-time operation to populate the database
-with historical data for backtesting and analysis.
+This script fetches historical 1-minute OHLCV data for multiple coins from Bybit
+and stores it in InfluxDB. It handles the API limit of 1000 points by fetching
+data in smaller date ranges.
 
 Features:
-- Fetches up to 365 days of historical data
+- Fetches 1-minute candle data in configurable date ranges
+- Respects API limit of 1000 points per request
+- Breaks large time periods into multiple requests
+- Skips data points that already exist in InfluxDB
 - Validates data before writing to InfluxDB
 - Handles errors gracefully and continues processing
 - Logs all operations for monitoring and debugging
@@ -17,10 +20,12 @@ import logging
 import logging.handlers
 import sys
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from modules.exchanges.bybit import BybitKline
 from modules.exchanges.yfinance import YFinanceKline
+from modules.exchanges.bitunix import BitunixKline
+from modules.exchanges.deribit import DeribitDVOL
 from modules.influx_writer import InfluxDBWriter
 from config import get_config
 
@@ -32,14 +37,18 @@ BACKFILL_CONFIG = {
     # ═══════════════════════════════════════════════════════════════════════
     # Time Period Settings
     # ═══════════════════════════════════════════════════════════════════════
-    "DAYS": 7,                         # Number of days to backfill (e.g., 7, 30, 365)
-                                        # Supports decimal: 0.5 = 12 hours, 0.042 = 1 hour
+    "TOTAL_DAYS": 90,                   # Total days to backfill (90 days = 3 months)
+                                         # This will be split into chunks to respect 1000 point limit
+    
+    "CHUNK_SIZE_DAYS": 0.7,             # Days per API request (smaller = more requests, ~1000 points)
+                                         # For 1-minute data: 0.7 days ≈ 1000 minutes ≈ 1000 points
+                                         # Adjust if needed based on your interval
     
     # ═══════════════════════════════════════════════════════════════════════
     # Timeframe/Interval Settings
     # ═══════════════════════════════════════════════════════════════════════
-    "BYBIT_RESOLUTION": "1",            # Bybit timeframe:
-                                        #   "1"  = 1 minute
+    "BYBIT_RESOLUTION": "1",            # Bybit timeframe (MUST be "1" for 1-minute data)
+                                        #   "1"  = 1 minute (for backfill)
                                         #   "5"  = 5 minutes
                                         #   "15" = 15 minutes
                                         #   "60" = 1 hour
@@ -60,7 +69,7 @@ BACKFILL_CONFIG = {
     # ═══════════════════════════════════════════════════════════════════════
     # Performance Settings
     # ═══════════════════════════════════════════════════════════════════════
-    "BATCH_SIZE": 1000,                 # Number of records to batch (2-100)
+    "BATCH_SIZE": 500,                  # Number of records to batch (2-1000)
                                         # Lower = safer, Higher = faster
 }
 
@@ -120,27 +129,33 @@ def setup_logging(log_file: str, log_level: str = "INFO") -> logging.Logger:
 
 class HistoricalBackfill:
     """
-    Historical data backfill class that orchestrates fetching and storing historical market data.
+    Historical data backfill class that fetches 1-minute candle data in chunks
+    to respect the 1000 points API limit.
     """
     
-    def __init__(self, logger: logging.Logger, batch_size: int = 2, days: int = 365, 
-                 bybit_resolution: str = "D", yfinance_interval: str = "1h"):
+    def __init__(self, logger: logging.Logger, batch_size: int = 500, 
+                 total_days: int = 30, chunk_size_days: float = 0.7,
+                 bybit_resolution: str = "1", yfinance_interval: str = "1m"):
         """
         Initialize the backfill processor.
         
         Args:
             logger (logging.Logger): Logger instance
             batch_size (int): Batch size for InfluxDB writes
-            days (int): Number of days of historical data to fetch
+            total_days (int): Total number of days to backfill
+            chunk_size_days (float): Days per API request (e.g., 0.7 = ~1000 minutes)
             bybit_resolution (str): Bybit timeframe resolution
             yfinance_interval (str): YFinance interval
         """
         self.logger = logger
         self.batch_size = batch_size
-        self.days = days
+        self.total_days = total_days
+        self.chunk_size_days = chunk_size_days
         self.bybit_resolution = bybit_resolution
         self.yfinance_interval = yfinance_interval
         self.bybit = BybitKline()
+        self.bitunix = BitunixKline()
+        self.deribit = DeribitDVOL()
         self.yfinance = YFinanceKline()
         self.writer = InfluxDBWriter(batch_size=batch_size)
         self.stats = {
@@ -148,6 +163,8 @@ class HistoricalBackfill:
             "successful_coins": 0,
             "failed_coins": 0,
             "total_points": 0,
+            "skipped_duplicates": 0,
+            "total_chunks": 0,
         }
     
     def load_coins(self, coins_file: str = "coins.txt") -> list:
@@ -197,9 +214,36 @@ class HistoricalBackfill:
             self.logger.error(f"Failed to load coins file: {e}")
             return []
     
+    @staticmethod
+    def _convert_to_yfinance_symbol(symbol: str) -> str:
+        """
+        Convert trading symbol to YFinance futures format.
+        Examples: BTCUSDT -> BTC=F, ETHUSDT -> ETH=F
+        
+        Args:
+            symbol: Trading symbol (e.g., BTCUSDT, ETH=F, etc.)
+            
+        Returns:
+            YFinance symbol format (e.g., BTC=F)
+        """
+        # If already has =F suffix, return as-is
+        if symbol.endswith('=F'):
+            return symbol
+        
+        # Remove common suffixes and add =F
+        for suffix in ['USDT', 'USDC', 'USD', 'BUSD', 'PERP']:
+            if symbol.endswith(suffix):
+                base = symbol[:-len(suffix)]
+                return f"{base}=F"
+        
+        # If no suffix found, just add =F
+        return f"{symbol}=F"
+    
     def backfill_coin(self, symbol: str, exchanges: list) -> bool:
         """
-        Fetch historical data for a single coin and store it in InfluxDB.
+        Fetch historical data for a single coin in date chunks and store it in InfluxDB.
+        
+        Breaks the total time period into smaller chunks to respect the 1000 points API limit.
         
         Args:
             symbol (str): The coin symbol (e.g., BTCUSDT, BTC-USD)
@@ -209,76 +253,225 @@ class HistoricalBackfill:
             bool: True if at least one exchange was successful, False otherwise
         """
         any_success = False
-        total_points = 0
+        total_points_written = 0
+        
+        # Calculate date chunks
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=self.total_days)
+        
+        self.logger.info(f"Fetching {symbol} from {start_date.date()} to {end_date.date()} in {self.chunk_size_days} day chunks")
+        
+        # Generate chunks
+        chunk_starts = []
+        current_date = start_date
+        while current_date < end_date:
+            chunk_starts.append(current_date)
+            current_date += timedelta(days=self.chunk_size_days)
+        
+        total_chunks = len(chunk_starts)
+        self.stats["total_chunks"] += total_chunks
         
         # Fetch from Bybit if specified
         if "bybit" in exchanges:
             try:
-                self.logger.debug(f"Fetching {self.days} days of Bybit data for {symbol}")
-                
-                df = self.bybit.fetch_historical_kline(
-                    currency=symbol,
-                    days=self.days,
-                    resolution=self.bybit_resolution
-                )
-                
-                if not df.empty:
-                    db_symbol = f"{symbol}_BYBIT"
-                    valid_points = self.writer.write_market_data(
-                        df=df,
-                        symbol=db_symbol,
-                        exchange="Bybit",
-                        data_type="kline"
-                    )
+                for chunk_num, chunk_start in enumerate(chunk_starts, 1):
+                    chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
+                    if chunk_end > end_date:
+                        chunk_end = end_date
                     
-                    if valid_points > 0:
-                        total_points += valid_points
-                        any_success = True
-                        self.logger.info(f"Bybit: Backfilled {valid_points} points for {db_symbol}")
-                    else:
-                        self.logger.warning(f"Bybit: No valid data points for {symbol}")
+                    chunk_days = (chunk_end - chunk_start).total_seconds() / 86400
+                    
+                    self.logger.debug(f"Bybit [{chunk_num}/{total_chunks}] {symbol}: {chunk_start.date()} to {chunk_end.date()} ({chunk_days:.2f} days)")
+                    
+                    try:
+                        df = self.bybit.fetch_historical_kline(
+                            currency=symbol,
+                            days=chunk_days,
+                            resolution=self.bybit_resolution,
+                            start_time=chunk_start,
+                            end_time=chunk_end
+                        )
+                        
+                        if not df.empty:
+                            valid_points = self.writer.write_market_data(
+                                df=df,
+                                symbol=symbol,
+                                exchange="Bybit",
+                                data_type="kline"
+                            )
+                            
+                            if valid_points > 0:
+                                total_points_written += valid_points
+                                any_success = True
+                                self.logger.debug(f"Bybit [{chunk_num}/{total_chunks}] {symbol}: Wrote {valid_points} points")
+                        else:
+                            self.logger.debug(f"Bybit [{chunk_num}/{total_chunks}] {symbol}: No data returned")
+                    
+                    except Exception as e:
+                        self.logger.warning(f"Bybit [{chunk_num}/{total_chunks}] {symbol}: Chunk error: {e}")
+                        continue
+                
+                if any_success:
+                    self.logger.info(f"Bybit: Successfully backfilled {total_points_written} points for {symbol}")
                 else:
-                    self.logger.warning(f"Bybit: No data returned for {symbol}")
+                    self.logger.warning(f"Bybit: No data written for {symbol}")
             
             except Exception as e:
                 self.logger.error(f"Bybit: Failed to backfill {symbol}: {e}", exc_info=False)
         
-        # Fetch from YFinance if specified
-        if "yfinance" in exchanges:
+        # Fetch from YFinance if specified (only for supported coins: BTC, ETH, XRP, SOL)
+        yfinance_supported = {"BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT"}
+        
+        if "yfinance" in exchanges and symbol in yfinance_supported:
             try:
-                self.logger.debug(f"Fetching {self.days} days of YFinance data for {symbol}")
-                
-                df = self.yfinance.fetch_historical_kline(
-                    symbol=symbol,
-                    days=self.days,
-                    interval=self.yfinance_interval
-                )
-                
-                if not df.empty:
-                    db_symbol = f"{symbol}_YFINANCE"
-                    valid_points = self.writer.write_market_data(
-                        df=df,
-                        symbol=db_symbol,
-                        exchange="YFinance",
-                        data_type="kline"
-                    )
+                for chunk_num, chunk_start in enumerate(chunk_starts, 1):
+                    chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
+                    if chunk_end > end_date:
+                        chunk_end = end_date
                     
-                    if valid_points > 0:
-                        total_points += valid_points
-                        any_success = True
-                        self.logger.info(f"YFinance: Backfilled {valid_points} points for {db_symbol}")
-                    else:
-                        self.logger.warning(f"YFinance: No valid data points for {symbol}")
+                    chunk_days = (chunk_end - chunk_start).total_seconds() / 86400
+                    
+                    self.logger.debug(f"YFinance [{chunk_num}/{total_chunks}] {symbol}: {chunk_start.date()} to {chunk_end.date()}")
+                    
+                    try:
+                        # Convert symbol for YFinance (e.g., BTCUSDT -> BTC=F)
+                        yfinance_symbol = self._convert_to_yfinance_symbol(symbol)
+                        
+                        df = self.yfinance.fetch_historical_kline(
+                            symbol=yfinance_symbol,
+                            days=chunk_days,
+                            interval=self.yfinance_interval,
+                            start_time=chunk_start,
+                            end_time=chunk_end
+                        )
+                        
+                        if not df.empty:
+                            valid_points = self.writer.write_market_data(
+                                df=df,
+                                symbol=symbol,
+                                exchange="YFinance",
+                                data_type="kline"
+                            )
+                            
+                            if valid_points > 0:
+                                total_points_written += valid_points
+                                any_success = True
+                                self.logger.debug(f"YFinance [{chunk_num}/{total_chunks}] {symbol}: Wrote {valid_points} points")
+                        else:
+                            self.logger.debug(f"YFinance [{chunk_num}/{total_chunks}] {symbol}: No data returned")
+                    
+                    except Exception as e:
+                        self.logger.warning(f"YFinance [{chunk_num}/{total_chunks}] {symbol}: Chunk error: {e}")
+                        continue
+                
+                if any_success:
+                    self.logger.info(f"YFinance: Successfully backfilled {total_points_written} points for {symbol}")
                 else:
-                    self.logger.warning(f"YFinance: No data returned for {symbol}")
+                    self.logger.warning(f"YFinance: No data written for {symbol}")
             
             except Exception as e:
                 self.logger.error(f"YFinance: Failed to backfill {symbol}: {e}", exc_info=False)
         
+        # Fetch from Bitunix if specified
+        if "bitunix" in exchanges:
+            try:
+                for chunk_num, chunk_start in enumerate(chunk_starts, 1):
+                    chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
+                    if chunk_end > end_date:
+                        chunk_end = end_date
+                    
+                    chunk_days = (chunk_end - chunk_start).total_seconds() / 86400
+                    
+                    self.logger.debug(f"Bitunix [{chunk_num}/{total_chunks}] {symbol}: {chunk_start.date()} to {chunk_end.date()} ({chunk_days:.2f} days)")
+                    
+                    try:
+                        df = self.bitunix.fetch_historical_kline(
+                            currency=symbol,
+                            days=chunk_days,
+                            resolution=1,  # 1-minute for bitunix
+                            start_time=chunk_start,
+                            end_time=chunk_end
+                        )
+                        
+                        if not df.empty:
+                            valid_points = self.writer.write_market_data(
+                                df=df,
+                                symbol=symbol,
+                                exchange="Bitunix",
+                                data_type="kline"
+                            )
+                            
+                            if valid_points > 0:
+                                total_points_written += valid_points
+                                any_success = True
+                                self.logger.debug(f"Bitunix [{chunk_num}/{total_chunks}] {symbol}: Wrote {valid_points} points")
+                        else:
+                            self.logger.debug(f"Bitunix [{chunk_num}/{total_chunks}] {symbol}: No data returned")
+                    
+                    except Exception as e:
+                        self.logger.warning(f"Bitunix [{chunk_num}/{total_chunks}] {symbol}: Chunk error: {e}")
+                        continue
+                
+                if any_success:
+                    self.logger.info(f"Bitunix: Successfully backfilled {total_points_written} points for {symbol}")
+                else:
+                    self.logger.warning(f"Bitunix: No data written for {symbol}")
+            
+            except Exception as e:
+                self.logger.error(f"Bitunix: Failed to backfill {symbol}: {e}", exc_info=False)
+        
+        # Fetch from Deribit if specified
+        if "deribit" in exchanges:
+            try:
+                for chunk_num, chunk_start in enumerate(chunk_starts, 1):
+                    chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
+                    if chunk_end > end_date:
+                        chunk_end = end_date
+                    
+                    chunk_days = (chunk_end - chunk_start).total_seconds() / 86400
+                    
+                    self.logger.debug(f"Deribit [{chunk_num}/{total_chunks}] {symbol}: {chunk_start.date()} to {chunk_end.date()} ({chunk_days:.2f} days)")
+                    
+                    try:
+                        df = self.deribit.fetch_historical_dvol(
+                            currency=symbol,
+                            days=chunk_days,
+                            resolution="1",  # 1-minute for deribit
+                            start_time=chunk_start,
+                            end_time=chunk_end
+                        )
+                        
+                        if not df.empty:
+                            valid_points = self.writer.write_market_data(
+                                df=df,
+                                symbol=symbol,
+                                exchange="Deribit",
+                                data_type="kline"
+                            )
+                            
+                            if valid_points > 0:
+                                total_points_written += valid_points
+                                any_success = True
+                                self.logger.debug(f"Deribit [{chunk_num}/{total_chunks}] {symbol}: Wrote {valid_points} points")
+                        else:
+                            self.logger.debug(f"Deribit [{chunk_num}/{total_chunks}] {symbol}: No data returned")
+                    
+                    except Exception as e:
+                        self.logger.warning(f"Deribit [{chunk_num}/{total_chunks}] {symbol}: Chunk error: {e}")
+                        continue
+                
+                if any_success:
+                    self.logger.info(f"Deribit: Successfully backfilled {total_points_written} points for {symbol}")
+                else:
+                    self.logger.warning(f"Deribit: No data written for {symbol}")
+            
+            except Exception as e:
+                self.logger.error(f"Deribit: Failed to backfill {symbol}: {e}", exc_info=False)
+        
         # Update stats
         if any_success:
             self.stats["successful_coins"] += 1
-            self.stats["total_points"] += total_points
+            self.stats["total_points"] += total_points_written
             return True
         else:
             self.stats["failed_coins"] += 1
@@ -292,7 +485,8 @@ class HistoricalBackfill:
             coins_file (str): Path to the coins file
         """
         self.logger.info("="*80)
-        self.logger.info(f"Starting historical data backfill ({self.days} days)")
+        total_days_msg = f"total {self.total_days} days in {self.chunk_size_days}-day chunks (~{int(self.total_days/self.chunk_size_days)} chunks)"
+        self.logger.info(f"Starting historical data backfill ({total_days_msg})")
         self.logger.info("="*80)
         
         start_time = datetime.now()
@@ -350,8 +544,11 @@ def main():
     logger.info("="*80)
     logger.info("BACKFILL CONFIGURATION")
     logger.info("="*80)
-    logger.info(f"Days to backfill:        {BACKFILL_CONFIG['DAYS']}")
-    logger.info(f"Bybit resolution:        {BACKFILL_CONFIG['BYBIT_RESOLUTION']}")
+    logger.info(f"Total days to backfill:  {BACKFILL_CONFIG['TOTAL_DAYS']}")
+    logger.info(f"Chunk size (days):       {BACKFILL_CONFIG['CHUNK_SIZE_DAYS']}")
+    total_chunks = int(BACKFILL_CONFIG['TOTAL_DAYS'] / BACKFILL_CONFIG['CHUNK_SIZE_DAYS'])
+    logger.info(f"Total chunks:            ~{total_chunks}")
+    logger.info(f"Bybit resolution:        {BACKFILL_CONFIG['BYBIT_RESOLUTION']} (1-minute data)")
     logger.info(f"YFinance interval:       {BACKFILL_CONFIG['YFINANCE_INTERVAL']}")
     logger.info(f"Assets file:             {BACKFILL_CONFIG['ASSETS_FILE']}")
     logger.info(f"Batch size:              {BACKFILL_CONFIG['BATCH_SIZE']}")
@@ -362,7 +559,8 @@ def main():
         backfill = HistoricalBackfill(
             logger=logger,
             batch_size=BACKFILL_CONFIG["BATCH_SIZE"],
-            days=BACKFILL_CONFIG["DAYS"],
+            total_days=BACKFILL_CONFIG["TOTAL_DAYS"],
+            chunk_size_days=BACKFILL_CONFIG["CHUNK_SIZE_DAYS"],
             bybit_resolution=BACKFILL_CONFIG["BYBIT_RESOLUTION"],
             yfinance_interval=BACKFILL_CONFIG["YFINANCE_INTERVAL"]
         )
