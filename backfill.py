@@ -48,7 +48,7 @@ BACKFILL_CONFIG = {
     # ═══════════════════════════════════════════════════════════════════════
     # Timeframe/Interval Settings
     # ═══════════════════════════════════════════════════════════════════════
-    "BYBIT_RESOLUTION": "1",            # Bybit timeframe (MUST be "1" for 1-minute data)
+    "BYBIT_RESOLUTION": "60",            # Bybit timeframe (MUST be "1" for 1-minute data)
                                         #   "1"  = 1 minute (for backfill)
                                         #   "5"  = 5 minutes
                                         #   "15" = 15 minutes
@@ -517,7 +517,7 @@ class HistoricalBackfill:
             self.backfill_coin(symbol, exchanges)
             
             # Cooldown every 100 coins to avoid rate limiting
-            if i % 100 == 0 and i < len(coins):
+            if i % 10 == 0 and i < len(coins):
                 self.logger.info("="*80)
                 self.logger.info(f"⏸️  RATE LIMIT COOLDOWN: Processed {i} coins, pausing for 10 minutes...")
                 self.logger.info(f"    Resume at: {(datetime.now() + timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')}")
