@@ -245,7 +245,7 @@ class DataCollector:
             except Exception as e:
                 self.logger.debug(f"Bybit: Failed to process funding rate for {symbol}: {e}")
             
-            # Fetch and store Bybit funding rate period (metadata)
+            # Cache Bybit funding rate period (metadata)
             try:
                 self.logger.debug(f"Fetching Bybit funding rate period for {symbol}")
                 
@@ -253,12 +253,14 @@ class DataCollector:
                 
                 if period_info and "fundingInterval" in period_info:
                     period_hours = period_info["fundingInterval"]
-                    if self.writer.write_funding_rate_period(
+                    # Convert hours to string format (e.g., 8 -> "8h")
+                    period_str = f"{period_hours}h"
+                    self.writer.set_funding_period(
                         symbol=symbol,
-                        exchange="Bybit",
-                        period_hours=period_hours
-                    ):
-                        self.logger.debug(f"Bybit: Funding rate period for {symbol}: {period_hours} hours")
+                        exchange="bybit",
+                        period=period_str
+                    )
+                    self.logger.debug(f"Bybit: Funding rate period for {symbol}: {period_str}")
                 else:
                     self.logger.debug(f"Bybit: Could not determine funding rate period for {symbol}")
             
@@ -327,7 +329,7 @@ class DataCollector:
             except Exception as e:
                 self.logger.debug(f"Bitunix: Failed to process funding rate for {symbol}: {e}")
             
-            # Fetch and store Bitunix funding rate period (metadata from InfluxDB analysis)
+            # Cache Bitunix funding rate period (metadata from InfluxDB analysis)
             try:
                 self.logger.debug(f"Fetching Bitunix funding rate period for {symbol}")
                 
@@ -335,12 +337,14 @@ class DataCollector:
                 
                 if period_info and "fundingInterval" in period_info:
                     period_hours = period_info["fundingInterval"]
-                    if self.writer.write_funding_rate_period(
+                    # Convert hours to string format (e.g., 8 -> "8h")
+                    period_str = f"{period_hours}h"
+                    self.writer.set_funding_period(
                         symbol=symbol,
-                        exchange="Bitunix",
-                        period_hours=period_hours
-                    ):
-                        self.logger.debug(f"Bitunix: Funding rate period for {symbol}: {period_hours} hours (method: {period_info.get('method')})")
+                        exchange="bitunix",
+                        period=period_str
+                    )
+                    self.logger.debug(f"Bitunix: Funding rate period for {symbol}: {period_str} (method: {period_info.get('method')})")
                 else:
                     self.logger.debug(f"Bitunix: Could not determine funding rate period for {symbol}")
             
