@@ -26,6 +26,7 @@ from modules.exchanges.bitunix import BitunixKline
 from modules.exchanges.deribit import DeribitDVOL
 from modules.exchanges.yfinance import YFinanceKline
 from modules.influx_writer import InfluxDBWriter
+from modules.csv_asset_parser import parse_csv_assets
 from config import get_config
 
 # ============================================================================
@@ -119,61 +120,49 @@ class DataCollector:
             "skipped_points": 0
         }
     
-    def load_assets(self, assets_file: str = "assets.txt") -> list:
+    def load_assets(self, assets_file: str = "assets.csv") -> list:
         """
-        Load the list of assets from a file with exchange specifications.
+        Load the list of assets from CSV file with exchange specifications.
         
-        Format: SYMBOL [exchanges]
+        CSV Format: symbol,ohlc_exchanges,funding_rate_exchanges
         Examples:
-            BTCUSDT bybit+deribit
-            BTC-USD yfinance
-            AAPL yfinance
+            BTCUSDT,bybit+deribit+bitunix,bybit+bitunix
+            BTC-USD,yfinance,
+            AAPL,yfinance,
         
         Args:
-            assets_file (str): Path to the assets file
+            assets_file (str): Path to the assets CSV file
             
         Returns:
-            list: List of tuples (symbol, exchanges_list)
+            list: List of tuples (symbol, ohlc_exchanges, funding_rate_exchanges)
         """
         if not os.path.exists(assets_file):
             self.logger.error(f"Assets file not found: {assets_file}")
             return []
         
         try:
-            assets = []
-            with open(assets_file, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    
-                    parts = line.split()
-                    symbol = parts[0]
-                    
-                    # Parse exchanges (default to bybit only)
-                    if len(parts) > 1:
-                        exchanges_str = parts[1]
-                        exchanges = exchanges_str.split("+")
-                    else:
-                        exchanges = ["bybit"]
-                    
-                    assets.append((symbol, exchanges))
+            configs = parse_csv_assets(assets_file)
+            assets = [
+                (symbol, config.ohlc_exchanges, config.funding_rate_exchanges)
+                for symbol, config in sorted(configs.items())
+            ]
             
             self.logger.info(f"Loaded {len(assets)} assets from {assets_file}")
             return assets
         
         except Exception as e:
-            self.logger.error(f"Failed to load coins file: {e}")
+            self.logger.error(f"Failed to load assets file: {e}")
             return []
     
-    def fetch_and_store_asset(self, symbol: str, exchanges: list) -> bool:
+    def fetch_and_store_asset(self, symbol: str, ohlc_exchanges: list, funding_rate_exchanges: list) -> bool:
         """
         Fetch data for a single asset and store it in InfluxDB.
-        Fetches data from specified exchanges only.
+        Fetches OHLC and funding_rate data from specified exchanges.
         
         Args:
             symbol (str): The asset symbol (e.g., BTCUSDT, BTC-USD, AAPL)
-            exchanges (list): List of exchanges to fetch from (e.g., ['bybit', 'deribit', 'yfinance'])
+            ohlc_exchanges (list): List of exchanges to fetch OHLC from (e.g., ['bybit', 'deribit'])
+            funding_rate_exchanges (list): List of exchanges to fetch funding_rate from (e.g., ['bybit', 'bitunix'])
             
         Returns:
             bool: True if at least one data source was successful, False otherwise
@@ -182,8 +171,8 @@ class DataCollector:
         success_flags = {"bybit": False, "bitunix": False, "deribit": False, "yfinance": False}
         total_valid_points = 0
         
-        # Fetch Bybit Kline Data (only if specified)
-        if "bybit" in exchanges:
+        # Fetch Bybit Kline Data (only if specified in ohlc_exchanges)
+        if "bybit" in ohlc_exchanges:
             try:
                 self.logger.debug(f"Fetching Bybit kline data for {symbol}")
                 
@@ -215,7 +204,30 @@ class DataCollector:
             except Exception as e:
                 self.logger.error(f"Bybit: Failed to process kline data for {symbol}: {e}", exc_info=False)
             
-            # Also fetch funding rate for Bybit perpetual contracts
+            # Fetch and cache Bybit funding rate period FIRST (before writing funding rate data)
+            try:
+                self.logger.debug(f"Fetching Bybit funding rate period for {symbol}")
+                
+                period_info = self.bybit.fetch_funding_rate_period(symbol)
+                
+                if period_info and "fundingInterval" in period_info:
+                    period_hours = period_info["fundingInterval"]
+                    # Use period as string number only (e.g., "8")
+                    period_str = str(period_hours)
+                    self.writer.set_funding_period(
+                        symbol=symbol,
+                        exchange="bybit",
+                        period=period_str
+                    )
+                    self.logger.debug(f"Bybit: Funding rate period for {symbol}: {period_str} hours")
+                else:
+                    self.logger.debug(f"Bybit: Could not determine funding rate period for {symbol}")
+            
+            except Exception as e:
+                self.logger.debug(f"Bybit: Failed to process funding rate period for {symbol}: {e}")
+        
+        # Fetch Bybit Funding Rate (only if specified in funding_rate_exchanges)
+        if "bybit" in funding_rate_exchanges:
             try:
                 self.logger.debug(f"Fetching Bybit funding rate for {symbol}")
                 
@@ -227,11 +239,14 @@ class DataCollector:
                 if not df_funding.empty:
                     # Write to InfluxDB with naming: SYMBOL_fundingrate_bybit
                     db_symbol = f"{symbol}"
+                    # Get cached period for this symbol
+                    period = self.writer.get_funding_period(symbol, "bybit")
                     valid_points = self.writer.write_market_data(
                         df=df_funding,
                         symbol=db_symbol,
                         exchange="Bybit",
-                        data_type="funding_rate"
+                        data_type="funding_rate",
+                        period=period
                     )
                     
                     if valid_points > 0:
@@ -244,31 +259,9 @@ class DataCollector:
             
             except Exception as e:
                 self.logger.debug(f"Bybit: Failed to process funding rate for {symbol}: {e}")
-            
-            # Cache Bybit funding rate period (metadata)
-            try:
-                self.logger.debug(f"Fetching Bybit funding rate period for {symbol}")
-                
-                period_info = self.bybit.fetch_funding_rate_period(symbol)
-                
-                if period_info and "fundingInterval" in period_info:
-                    period_hours = period_info["fundingInterval"]
-                    # Convert hours to string format (e.g., 8 -> "8h")
-                    period_str = f"{period_hours}h"
-                    self.writer.set_funding_period(
-                        symbol=symbol,
-                        exchange="bybit",
-                        period=period_str
-                    )
-                    self.logger.debug(f"Bybit: Funding rate period for {symbol}: {period_str}")
-                else:
-                    self.logger.debug(f"Bybit: Could not determine funding rate period for {symbol}")
-            
-            except Exception as e:
-                self.logger.debug(f"Bybit: Failed to process funding rate period for {symbol}: {e}")
         
-        # Fetch Bitunix Data (only if specified)
-        if "bitunix" in exchanges:
+        # Fetch Bitunix Kline Data (only if specified in ohlc_exchanges)
+        if "bitunix" in ohlc_exchanges:
             # Fetch Bitunix Kline Data
             try:
                 self.logger.debug(f"Fetching Bitunix kline data for {symbol}")
@@ -301,58 +294,62 @@ class DataCollector:
             except Exception as e:
                 self.logger.error(f"Bitunix: Failed to process kline data for {symbol}: {e}", exc_info=False)
             
-            # Fetch Bitunix Funding Rate
-            try:
-                self.logger.debug(f"Fetching Bitunix funding rate for {symbol}")
-                
-                df_funding_bitunix = self.bitunix.fetch_funding_rate(currency=symbol)
-                
-                if not df_funding_bitunix.empty:
-                    # Write to InfluxDB with naming: SYMBOL_fundingrate_bitunix
-                    db_symbol = f"{symbol}"
-                    valid_points = self.writer.write_market_data(
-                        df=df_funding_bitunix,
-                        symbol=db_symbol,
-                        exchange="Bitunix",
-                        data_type="funding_rate"
-                    )
+            # Fetch and cache Bitunix funding rate period FIRST (before writing funding rate data)
+            if "bitunix" in funding_rate_exchanges:
+                try:
+                    self.logger.debug(f"Fetching Bitunix funding rate period for {symbol}")
                     
-                    if valid_points > 0:
-                        total_valid_points += valid_points
-                        success_flags["bitunix"] = True
-                        self.logger.info(f"Bitunix: Successfully processed {valid_points} funding rate points for {db_symbol}")
+                    period_info = self.bitunix.fetch_funding_rate_period(symbol)
+                    
+                    if period_info and "fundingInterval" in period_info:
+                        period_hours = period_info["fundingInterval"]
+                        # Use period as string number only (e.g., "8")
+                        period_str = str(period_hours)
+                        self.writer.set_funding_period(
+                            symbol=symbol,
+                            exchange="bitunix",
+                            period=period_str
+                        )
+                        self.logger.debug(f"Bitunix: Funding rate period for {symbol}: {period_str} hours (method: {period_info.get('method')})")
                     else:
-                        self.logger.debug(f"Bitunix: No valid funding rate data points for {symbol}")
-                else:
-                    self.logger.debug(f"Bitunix: No funding rate data returned for {symbol}")
-            
-            except Exception as e:
-                self.logger.debug(f"Bitunix: Failed to process funding rate for {symbol}: {e}")
-            
-            # Cache Bitunix funding rate period (metadata from InfluxDB analysis)
-            try:
-                self.logger.debug(f"Fetching Bitunix funding rate period for {symbol}")
+                        self.logger.debug(f"Bitunix: Could not determine funding rate period for {symbol}")
                 
-                period_info = self.bitunix.fetch_funding_rate_period(symbol)
+                except Exception as e:
+                    self.logger.debug(f"Bitunix: Failed to process funding rate period for {symbol}: {e}")
                 
-                if period_info and "fundingInterval" in period_info:
-                    period_hours = period_info["fundingInterval"]
-                    # Convert hours to string format (e.g., 8 -> "8h")
-                    period_str = f"{period_hours}h"
-                    self.writer.set_funding_period(
-                        symbol=symbol,
-                        exchange="bitunix",
-                        period=period_str
-                    )
-                    self.logger.debug(f"Bitunix: Funding rate period for {symbol}: {period_str} (method: {period_info.get('method')})")
-                else:
-                    self.logger.debug(f"Bitunix: Could not determine funding rate period for {symbol}")
-            
-            except Exception as e:
-                self.logger.debug(f"Bitunix: Failed to process funding rate period for {symbol}: {e}")
+                # Then fetch and write funding rate with the cached period
+                try:
+                    self.logger.debug(f"Fetching Bitunix funding rate for {symbol}")
+                    
+                    df_funding_bitunix = self.bitunix.fetch_funding_rate(currency=symbol)
+                    
+                    if not df_funding_bitunix.empty:
+                        # Write to InfluxDB with naming: SYMBOL_fundingrate_bitunix
+                        db_symbol = f"{symbol}"
+                        # Get cached period for this symbol
+                        period = self.writer.get_funding_period(symbol, "bitunix")
+                        valid_points = self.writer.write_market_data(
+                            df=df_funding_bitunix,
+                            symbol=db_symbol,
+                            exchange="Bitunix",
+                            data_type="funding_rate",
+                            period=period
+                        )
+                        
+                        if valid_points > 0:
+                            total_valid_points += valid_points
+                            success_flags["bitunix"] = True
+                            self.logger.info(f"Bitunix: Successfully processed {valid_points} funding rate points for {db_symbol}")
+                        else:
+                            self.logger.debug(f"Bitunix: No valid funding rate data points for {symbol}")
+                    else:
+                        self.logger.debug(f"Bitunix: No funding rate data returned for {symbol}")
+                
+                except Exception as e:
+                    self.logger.debug(f"Bitunix: Failed to process funding rate for {symbol}: {e}")
         
-        # Fetch Deribit DVOL Data (only if specified)
-        if "deribit" in exchanges:
+        # Fetch Deribit DVOL Data (only if specified in ohlc_exchanges)
+        if "deribit" in ohlc_exchanges:
             try:
                 # Extract base currency (BTC from BTCUSDT, ETH from ETHUSDT)
                 base_currency = symbol.replace("USDT", "").replace("USDC", "")
@@ -391,8 +388,8 @@ class DataCollector:
             except Exception as e:
                 self.logger.error(f"Deribit: Failed to process DVOL data for {symbol}: {e}", exc_info=False)
         
-        # Fetch Yahoo Finance Data (only if specified)
-        if "yfinance" in exchanges:
+        # Fetch Yahoo Finance Data (only if specified in ohlc_exchanges)
+        if "yfinance" in ohlc_exchanges:
             try:
                 self.logger.debug(f"Fetching Yahoo Finance data for {symbol}")
                 
@@ -445,12 +442,12 @@ class DataCollector:
             self.stats["failed_assets"] += 1
             return False
     
-    def run(self, assets_file: str = "assets.txt") -> None:
+    def run(self, assets_file: str = "assets.csv") -> None:
         """
         Run the data collection process.
         
         Args:
-            assets_file (str): Path to the assets file
+            assets_file (str): Path to the assets CSV file
         """
         self.logger.info("="*80)
         self.logger.info("Starting market data collection")
@@ -467,10 +464,11 @@ class DataCollector:
         self.stats["total_assets"] = len(assets)
         
         # Process each asset
-        for i, (symbol, exchanges) in enumerate(assets, 1):
-            exchanges_str = "+".join(exchanges)
-            self.logger.info(f"[{i}/{len(assets)}] Processing {symbol} (exchanges: {exchanges_str})")
-            self.fetch_and_store_asset(symbol, exchanges)
+        for i, (symbol, ohlc_exchanges, funding_rate_exchanges) in enumerate(assets, 1):
+            ohlc_str = "+".join(ohlc_exchanges) if ohlc_exchanges else "none"
+            fr_str = "+".join(funding_rate_exchanges) if funding_rate_exchanges else "none"
+            self.logger.info(f"[{i}/{len(assets)}] Processing {symbol} (OHLC: {ohlc_str}, Funding: {fr_str})")
+            self.fetch_and_store_asset(symbol, ohlc_exchanges, funding_rate_exchanges)
         
         # Flush remaining data
         self.logger.info("Flushing remaining data to InfluxDB...")
@@ -544,7 +542,7 @@ def main():
             logger=logger,
             batch_size=config["INFLUXDB_BATCH_SIZE"]
         )
-        collector.run(assets_file="assets.txt")
+        collector.run(assets_file="assets.csv")
         
     except KeyboardInterrupt:
         logger.info("Data collection interrupted by user")

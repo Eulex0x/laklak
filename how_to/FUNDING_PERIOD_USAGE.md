@@ -22,9 +22,9 @@ import pandas as pd
 writer = InfluxDBWriter(batch_size=1000)
 
 # Cache funding periods (do this once at startup)
-writer.set_funding_period("BTCUSDT", "bybit", "8h")
-writer.set_funding_period("ETHUSDT", "bybit", "8h")
-writer.set_funding_period("BNBUSDT", "bybit", "4h")
+writer.set_funding_period("BTCUSDT", "bybit", "8")
+writer.set_funding_period("ETHUSDT", "bybit", "8")
+writer.set_funding_period("BNBUSDT", "bybit", "4")
 
 # When writing market data, pass the period
 period = writer.get_funding_period("BTCUSDT", "bybit")  # Returns "8h"
