@@ -61,6 +61,9 @@ class InfluxDBWriter:
         self.batch_size = batch_size
         self.batch: List[Dict[str, Any]] = []
         
+        # In-memory cache for funding rate periods: key = "symbol:exchange", value = "8h" or "4h", etc.
+        self.period_cache: Dict[str, str] = {}
+        
         logger.info(f"Initializing InfluxDB Writer: {self.host}:{self.port}/{self.database}")
         logger.info(f"Batch size set to: {self.batch_size}")
         
@@ -154,7 +157,8 @@ class InfluxDBWriter:
         row: Dict[str, Any],
         symbol: str,
         exchange: str,
-        data_type: str
+        data_type: str,
+        period: str = "unknown"
     ) -> Optional[Dict[str, Any]]:
         """
         Convert a data row into an InfluxDB point.
@@ -164,6 +168,8 @@ class InfluxDBWriter:
             symbol (str): The trading symbol (e.g., BTCUSDT)
             exchange (str): The exchange name (e.g., Bybit)
             data_type (str): The data type (e.g., kline, dvol, funding_rate)
+            period (str): The funding rate period (e.g., "8h", "4h", "1h"). 
+                         Defaults to "unknown" if not provided.
             
         Returns:
             Dict: An InfluxDB point, or None if validation fails
@@ -186,13 +192,14 @@ class InfluxDBWriter:
                 logger.warning(f"Unable to convert timestamp for {symbol}: {timestamp}")
                 return None
             
-            # Create the InfluxDB point
+            # Create the InfluxDB point with period tag
             point = {
                 "measurement": "market_data",
                 "tags": {
                     "symbol": symbol,
                     "exchange": exchange,
-                    "data_type": data_type
+                    "data_type": data_type,
+                    "period": period  # Add period as a tag
                 },
                 "time": timestamp_ms,
                 "fields": {
@@ -215,7 +222,8 @@ class InfluxDBWriter:
         row: Dict[str, Any],
         symbol: str,
         exchange: str,
-        data_type: str
+        data_type: str,
+        period: str = "unknown"
     ) -> None:
         """
         Add a data row to the batch.
@@ -228,8 +236,9 @@ class InfluxDBWriter:
             symbol (str): The trading symbol
             exchange (str): The exchange name
             data_type (str): The data type
+            period (str): The funding rate period (e.g., "8h"). Defaults to "unknown".
         """
-        point = self._create_point(row, symbol, exchange, data_type)
+        point = self._create_point(row, symbol, exchange, data_type, period)
         
         if point is not None:
             self.batch.append(point)
@@ -246,7 +255,8 @@ class InfluxDBWriter:
         df: pd.DataFrame,
         symbol: str,
         exchange: str,
-        data_type: str = "kline"
+        data_type: str = "kline",
+        period: str = "unknown"
     ) -> int:
         """
         Write a DataFrame of market data to InfluxDB.
@@ -260,6 +270,7 @@ class InfluxDBWriter:
             symbol (str): The trading symbol (e.g., BTCUSDT)
             exchange (str): The exchange name (e.g., Bybit)
             data_type (str): The data type (default: kline)
+            period (str): The funding rate period (e.g., "8h"). Defaults to "unknown".
             
         Returns:
             int: Number of valid data points added to the batch
@@ -273,7 +284,7 @@ class InfluxDBWriter:
         for index, row in df.iterrows():
             try:
                 row_dict = row.to_dict()
-                point = self._create_point(row_dict, symbol, exchange, data_type)
+                point = self._create_point(row_dict, symbol, exchange, data_type, period)
                 
                 if point is not None:
                     self.batch.append(point)
@@ -367,6 +378,9 @@ class InfluxDBWriter:
 
     def funding_rate_period_exists(self, symbol: str, exchange: str, period_hours: int) -> bool:
         """
+        DEPRECATED: Use set_funding_period() instead.
+        This method is kept for backward compatibility.
+        
         Check if the funding rate period already exists in InfluxDB with the same value.
         
         Args:
@@ -394,8 +408,41 @@ class InfluxDBWriter:
             logger.debug(f"Failed to check funding rate period for {symbol}: {e}")
             return False
 
+    def set_funding_period(self, symbol: str, exchange: str, period: str) -> None:
+        """
+        Set the funding rate period in memory cache for a symbol+exchange pair.
+        
+        This is used to enrich market_data points with the period tag.
+        The period should be formatted as "8h", "4h", "1h", etc.
+        
+        Args:
+            symbol (str): The trading symbol (e.g., BTCUSDT)
+            exchange (str): The exchange name (e.g., Bybit)
+            period (str): The funding rate period (e.g., "8h", "4h", "1h")
+        """
+        cache_key = f"{symbol}:{exchange}"
+        self.period_cache[cache_key] = period
+        logger.debug(f"Cached funding period for {symbol} ({exchange}): {period}")
+
+    def get_funding_period(self, symbol: str, exchange: str) -> str:
+        """
+        Get the funding rate period from memory cache.
+        
+        Args:
+            symbol (str): The trading symbol (e.g., BTCUSDT)
+            exchange (str): The exchange name (e.g., Bybit)
+            
+        Returns:
+            str: The cached period (e.g., "8h") or "unknown" if not found
+        """
+        cache_key = f"{symbol}:{exchange}"
+        return self.period_cache.get(cache_key, "unknown")
+
     def write_funding_rate_period(self, symbol: str, exchange: str, period_hours: int) -> bool:
         """
+        DEPRECATED: Use set_funding_period() instead.
+        This method is kept for backward compatibility.
+        
         Write funding rate period metadata to a separate InfluxDB measurement.
         
         Since the funding rate period is static for each contract, this is stored
