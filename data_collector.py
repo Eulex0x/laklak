@@ -293,60 +293,60 @@ class DataCollector:
             
             except Exception as e:
                 self.logger.error(f"Bitunix: Failed to process kline data for {symbol}: {e}", exc_info=False)
+        
+        # Fetch Bitunix Funding Rate Data (independent of OHLC exchanges - only if specified in funding_rate_exchanges)
+        if "bitunix" in funding_rate_exchanges:
+            try:
+                self.logger.debug(f"Fetching Bitunix funding rate period for {symbol}")
+                
+                period_info = self.bitunix.fetch_funding_rate_period(symbol)
+                
+                if period_info and "fundingInterval" in period_info:
+                    period_hours = period_info["fundingInterval"]
+                    # Use period as string number only (e.g., "8")
+                    period_str = str(period_hours)
+                    self.writer.set_funding_period(
+                        symbol=symbol,
+                        exchange="bitunix",
+                        period=period_str
+                    )
+                    self.logger.debug(f"Bitunix: Funding rate period for {symbol}: {period_str} hours (method: {period_info.get('method')})")
+                else:
+                    self.logger.debug(f"Bitunix: Could not determine funding rate period for {symbol}")
             
-            # Fetch and cache Bitunix funding rate period FIRST (before writing funding rate data)
-            if "bitunix" in funding_rate_exchanges:
-                try:
-                    self.logger.debug(f"Fetching Bitunix funding rate period for {symbol}")
+            except Exception as e:
+                self.logger.debug(f"Bitunix: Failed to process funding rate period for {symbol}: {e}")
+            
+            # Then fetch and write funding rate with the cached period
+            try:
+                self.logger.debug(f"Fetching Bitunix funding rate for {symbol}")
+                
+                df_funding_bitunix = self.bitunix.fetch_funding_rate(currency=symbol)
+                
+                if not df_funding_bitunix.empty:
+                    # Write to InfluxDB with naming: SYMBOL_fundingrate_bitunix
+                    db_symbol = f"{symbol}"
+                    # Get cached period for this symbol
+                    period = self.writer.get_funding_period(symbol, "bitunix")
+                    valid_points = self.writer.write_market_data(
+                        df=df_funding_bitunix,
+                        symbol=db_symbol,
+                        exchange="Bitunix",
+                        data_type="funding_rate",
+                        period=period
+                    )
                     
-                    period_info = self.bitunix.fetch_funding_rate_period(symbol)
-                    
-                    if period_info and "fundingInterval" in period_info:
-                        period_hours = period_info["fundingInterval"]
-                        # Use period as string number only (e.g., "8")
-                        period_str = str(period_hours)
-                        self.writer.set_funding_period(
-                            symbol=symbol,
-                            exchange="bitunix",
-                            period=period_str
-                        )
-                        self.logger.debug(f"Bitunix: Funding rate period for {symbol}: {period_str} hours (method: {period_info.get('method')})")
+                    if valid_points > 0:
+                        total_valid_points += valid_points
+                        success_flags["bitunix"] = True
+                        self.logger.info(f"Bitunix: Successfully processed {valid_points} funding rate points for {db_symbol}")
                     else:
-                        self.logger.debug(f"Bitunix: Could not determine funding rate period for {symbol}")
-                
-                except Exception as e:
-                    self.logger.debug(f"Bitunix: Failed to process funding rate period for {symbol}: {e}")
-                
-                # Then fetch and write funding rate with the cached period
-                try:
-                    self.logger.debug(f"Fetching Bitunix funding rate for {symbol}")
-                    
-                    df_funding_bitunix = self.bitunix.fetch_funding_rate(currency=symbol)
-                    
-                    if not df_funding_bitunix.empty:
-                        # Write to InfluxDB with naming: SYMBOL_fundingrate_bitunix
-                        db_symbol = f"{symbol}"
-                        # Get cached period for this symbol
-                        period = self.writer.get_funding_period(symbol, "bitunix")
-                        valid_points = self.writer.write_market_data(
-                            df=df_funding_bitunix,
-                            symbol=db_symbol,
-                            exchange="Bitunix",
-                            data_type="funding_rate",
-                            period=period
-                        )
-                        
-                        if valid_points > 0:
-                            total_valid_points += valid_points
-                            success_flags["bitunix"] = True
-                            self.logger.info(f"Bitunix: Successfully processed {valid_points} funding rate points for {db_symbol}")
-                        else:
-                            self.logger.debug(f"Bitunix: No valid funding rate data points for {symbol}")
-                    else:
-                        self.logger.debug(f"Bitunix: No funding rate data returned for {symbol}")
-                
-                except Exception as e:
-                    self.logger.debug(f"Bitunix: Failed to process funding rate for {symbol}: {e}")
+                        self.logger.debug(f"Bitunix: No valid funding rate data points for {symbol}")
+                else:
+                    self.logger.debug(f"Bitunix: No funding rate data returned for {symbol}")
+            
+            except Exception as e:
+                self.logger.debug(f"Bitunix: Failed to process funding rate for {symbol}: {e}")
         
         # Fetch Deribit DVOL Data (only if specified in ohlc_exchanges)
         if "deribit" in ohlc_exchanges:
