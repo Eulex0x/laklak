@@ -23,6 +23,7 @@ from pathlib import Path
 
 from modules.exchanges.bybit import BybitKline
 from modules.exchanges.bitunix import BitunixKline
+from modules.exchanges.hyperliquid import HyperliquidKline
 from modules.exchanges.deribit import DeribitDVOL
 from modules.exchanges.yfinance import YFinanceKline
 from modules.influx_writer import InfluxDBWriter
@@ -109,6 +110,7 @@ class DataCollector:
         self.batch_size = batch_size
         self.bybit = BybitKline()
         self.bitunix = BitunixKline()
+        self.hyperliquid = HyperliquidKline()
         self.deribit = DeribitDVOL()
         self.yfinance = YFinanceKline()
         self.writer = InfluxDBWriter(batch_size=batch_size)
@@ -347,6 +349,63 @@ class DataCollector:
             
             except Exception as e:
                 self.logger.debug(f"Bitunix: Failed to process funding rate for {symbol}: {e}")
+        
+        # Fetch Hyperliquid Funding Rate Data (independent of OHLC exchanges - only if specified in funding_rate_exchanges)
+        if "hyperliquid" in funding_rate_exchanges:
+            try:
+                # Extract base currency (BTC from BTCUSDT, ETH from ETHUSDT)
+                base_coin = symbol.replace("USDT", "").replace("USDC", "").replace("PERP", "")
+                
+                self.logger.debug(f"Fetching Hyperliquid funding rate period for {base_coin}")
+                
+                period_info = self.hyperliquid.fetch_funding_rate_period(base_coin)
+                
+                if period_info and "fundingInterval" in period_info:
+                    period_hours = period_info["fundingInterval"]
+                    # Use period as string number only (e.g., "8")
+                    period_str = str(period_hours)
+                    self.writer.set_funding_period(
+                        symbol=symbol,
+                        exchange="hyperliquid",
+                        period=period_str
+                    )
+                    self.logger.debug(f"Hyperliquid: Funding rate period for {base_coin}: {period_str} hours (method: {period_info.get('method')})")
+                else:
+                    self.logger.debug(f"Hyperliquid: Could not determine funding rate period for {base_coin}")
+            
+            except Exception as e:
+                self.logger.debug(f"Hyperliquid: Failed to process funding rate period for {base_coin}: {e}")
+            
+            # Then fetch and write funding rate with the cached period
+            try:
+                self.logger.debug(f"Fetching Hyperliquid funding rate for {base_coin}")
+                
+                df_funding_hyperliquid = self.hyperliquid.fetch_funding_rate(coin=base_coin)
+                
+                if not df_funding_hyperliquid.empty:
+                    # Write to InfluxDB
+                    db_symbol = f"{symbol}"
+                    # Get cached period for this symbol
+                    period = self.writer.get_funding_period(symbol, "hyperliquid")
+                    valid_points = self.writer.write_market_data(
+                        df=df_funding_hyperliquid,
+                        symbol=db_symbol,
+                        exchange="Hyperliquid",
+                        data_type="funding_rate",
+                        period=period
+                    )
+                    
+                    if valid_points > 0:
+                        total_valid_points += valid_points
+                        success_flags["hyperliquid"] = True
+                        self.logger.info(f"Hyperliquid: Successfully processed {valid_points} funding rate points for {db_symbol}")
+                    else:
+                        self.logger.debug(f"Hyperliquid: No valid funding rate data points for {symbol}")
+                else:
+                    self.logger.debug(f"Hyperliquid: No funding rate data returned for {symbol}")
+            
+            except Exception as e:
+                self.logger.debug(f"Hyperliquid: Failed to process funding rate for {symbol}: {e}")
         
         # Fetch Deribit DVOL Data (only if specified in ohlc_exchanges)
         if "deribit" in ohlc_exchanges:
