@@ -21,7 +21,7 @@
 #   BTC,deribit,                           - Deribit DVOL (stored as BTC_DVOL)
 #
 
-symbol,ohlc_exchanges,funding_rate_exchanges+hyperliquid
+symbol,ohlc_exchanges,funding_rate_exchanges
 BTCUSDT,bybit+deribit+bitunix,bitunix+bybit+hyperliquid
 ETHUSDT,bybit+deribit+bitunix,bitunix+bybit+hyperliquid
 XLMUSDT,bybit+bitunix,bitunix+bybit+hyperliquid

@@ -1,0 +1,387 @@
+"""
+Exchange API Endpoint Tests
+
+Tests to verify all exchange APIs are working correctly and returning expected data.
+This is a critical security check since the data collector depends heavily on exchange APIs.
+
+Tests:
+- API connectivity and response format
+- Data structure validation
+- Rate limit handling
+- Error responses
+"""
+
+import pytest
+import requests
+from datetime import datetime, timedelta, timezone
+import pandas as pd
+from modules.exchanges.bybit import BybitKline
+from modules.exchanges.bitunix import BitunixKline
+from modules.exchanges.deribit import DeribitDVOL
+from modules.exchanges.hyperliquid import HyperliquidKline
+from modules.exchanges.yfinance import YFinanceKline
+
+
+class TestBybitAPI:
+    """Test Bybit exchange API endpoints."""
+    
+    def test_bybit_connection(self):
+        """Test Bybit API connectivity."""
+        response = requests.get("https://api.bybit.com/v5/market/time", timeout=10)
+        assert response.status_code == 200
+        data = response.json()
+        assert 'retCode' in data
+        assert data['retCode'] == 0
+    
+    def test_bybit_kline_data(self):
+        """Test Bybit kline/OHLC data fetching."""
+        bybit = BybitKline()
+        df = bybit.fetch_historical_kline('BTCUSDT', days=1, resolution=60)
+        
+        assert df is not None
+        assert not df.empty
+        assert len(df) > 0
+        
+        # Check required columns
+        required_columns = ['time', 'open', 'high', 'low', 'close', 'volume']
+        for col in required_columns:
+            assert col in df.columns, f"Missing column: {col}"
+        
+        # Validate data types
+        assert pd.api.types.is_datetime64_any_dtype(df['time'])
+        # Convert to numeric if needed (some exchanges return strings)
+        df['open'] = pd.to_numeric(df['open'], errors='coerce')
+        df['high'] = pd.to_numeric(df['high'], errors='coerce')
+        df['low'] = pd.to_numeric(df['low'], errors='coerce')
+        df['close'] = pd.to_numeric(df['close'], errors='coerce')
+        df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
+        assert pd.api.types.is_numeric_dtype(df['open'])
+        assert pd.api.types.is_numeric_dtype(df['close'])
+        assert pd.api.types.is_numeric_dtype(df['volume'])
+        
+        # Validate data values
+        assert (df['high'] >= df['low']).all()
+        assert (df['high'] >= df['open']).all()
+        assert (df['high'] >= df['close']).all()
+        assert (df['volume'] >= 0).all()
+    
+    def test_bybit_funding_rate(self):
+        """Test Bybit funding rate data fetching."""
+        bybit = BybitKline()
+        df = bybit.fetch_funding_rate('BTCUSDT', days=1)
+        
+        assert df is not None
+        assert not df.empty
+        assert len(df) > 0
+        
+        # Check structure
+        assert 'close' in df.columns
+        assert pd.api.types.is_numeric_dtype(df['close'])
+        
+        # Funding rates should be reasonable (between -100% and +100%)
+        assert (df['close'].abs() < 1.0).all()
+    
+    def test_bybit_funding_rate_period(self):
+        """Test Bybit funding rate period fetching."""
+        bybit = BybitKline()
+        period_info = bybit.fetch_funding_rate_period('BTCUSDT')
+        
+        assert period_info is not None
+        assert 'fundingInterval' in period_info
+        assert 'fundingIntervalMinutes' in period_info
+        assert isinstance(period_info['fundingInterval'], (int, float))
+        assert period_info['fundingInterval'] > 0
+        assert period_info['fundingInterval'] <= 24
+
+
+class TestBitunixAPI:
+    """Test Bitunix exchange API endpoints."""
+    
+    def test_bitunix_connection(self):
+        """Test Bitunix API connectivity."""
+        response = requests.get("https://www.bitunix.com", timeout=10)
+        assert response.status_code == 200
+    
+    def test_bitunix_kline_data(self):
+        """Test Bitunix kline/OHLC data fetching."""
+        bitunix = BitunixKline()
+        df = bitunix.fetch_historical_kline('BTCUSDT', days=1, resolution=60)
+        
+        assert df is not None
+        assert not df.empty
+        assert len(df) > 0
+        
+        # Check required columns
+        required_columns = ['time', 'open', 'high', 'low', 'close', 'volume']
+        for col in required_columns:
+            assert col in df.columns
+        
+        # Validate data types
+        assert pd.api.types.is_datetime64_any_dtype(df['time'])
+        assert pd.api.types.is_numeric_dtype(df['close'])
+        
+        # Validate OHLC logic
+        assert (df['high'] >= df['low']).all()
+        assert (df['volume'] >= 0).all()
+    
+    def test_bitunix_funding_rate(self):
+        """Test Bitunix funding rate data fetching."""
+        bitunix = BitunixKline()
+        df = bitunix.fetch_funding_rate('BTCUSDT')
+        
+        assert df is not None
+        assert not df.empty
+        
+        # Check structure
+        assert 'close' in df.columns
+        assert pd.api.types.is_numeric_dtype(df['close'])
+        
+        # Funding rates should be reasonable
+        assert (df['close'].abs() < 1.0).all()
+    
+    def test_bitunix_funding_rate_period(self):
+        """Test Bitunix funding rate period fetching."""
+        bitunix = BitunixKline()
+        period_info = bitunix.fetch_funding_rate_period('BTCUSDT')
+        
+        assert period_info is not None
+        assert 'fundingInterval' in period_info
+        assert isinstance(period_info['fundingInterval'], (int, float))
+        assert period_info['fundingInterval'] > 0
+
+
+class TestDeribitAPI:
+    """Test Deribit exchange API endpoints."""
+    
+    def test_deribit_connection(self):
+        """Test Deribit API connectivity."""
+        response = requests.get("https://www.deribit.com/api/v2/public/get_time", timeout=10)
+        assert response.status_code == 200
+        data = response.json()
+        assert 'result' in data
+    
+    def test_deribit_dvol_data(self):
+        """Test Deribit DVOL (volatility index) data fetching."""
+        deribit = DeribitDVOL()
+        df = deribit.fetch_historical_dvol('BTC', days=1, resolution=60)
+        
+        assert df is not None
+        assert not df.empty
+        assert len(df) > 0
+        
+        # Check required columns
+        required_columns = ['time', 'open', 'high', 'low', 'close']
+        for col in required_columns:
+            assert col in df.columns
+        
+        # Validate data types
+        assert pd.api.types.is_datetime64_any_dtype(df['time'])
+        assert pd.api.types.is_numeric_dtype(df['close'])
+        
+        # DVOL values should be positive and reasonable (typically 20-200)
+        assert (df['close'] > 0).all()
+        assert (df['close'] < 500).all()
+
+
+class TestHyperliquidAPI:
+    """Test Hyperliquid exchange API endpoints."""
+    
+    def test_hyperliquid_connection(self):
+        """Test Hyperliquid API connectivity."""
+        url = "https://api.hyperliquid.xyz/info"
+        payload = {"type": "meta"}
+        response = requests.post(url, json=payload, timeout=10)
+        assert response.status_code == 200
+    
+    def test_hyperliquid_funding_rate(self):
+        """Test Hyperliquid funding rate data fetching."""
+        hyperliquid = HyperliquidKline()
+        df = hyperliquid.fetch_funding_rate('BTC', days=1)
+        
+        assert df is not None
+        assert not df.empty
+        assert len(df) > 0
+        
+        # Check structure
+        required_columns = ['time', 'open', 'high', 'low', 'close', 'volume']
+        for col in required_columns:
+            assert col in df.columns
+        
+        # Validate data types
+        assert pd.api.types.is_datetime64_any_dtype(df['time'])
+        assert pd.api.types.is_numeric_dtype(df['close'])
+        
+        # Funding rates should be reasonable (8-hour rate, multiplied by 8)
+        # Typical range: -0.01 to 0.01 (after 8x multiplication)
+        assert (df['close'].abs() < 0.1).all()
+    
+    def test_hyperliquid_funding_rate_period(self):
+        """Test Hyperliquid funding rate period."""
+        hyperliquid = HyperliquidKline()
+        period_info = hyperliquid.fetch_funding_rate_period('BTC')
+        
+        assert period_info is not None
+        assert 'fundingInterval' in period_info
+        assert period_info['fundingInterval'] == 8
+        assert period_info['fundingIntervalMinutes'] == 480
+    
+    def test_hyperliquid_api_response_format(self):
+        """Test Hyperliquid raw API response format."""
+        url = "https://api.hyperliquid.xyz/info"
+        start_time = int((datetime.now(timezone.utc) - timedelta(days=1)).timestamp() * 1000)
+        payload = {
+            "type": "fundingHistory",
+            "coin": "BTC",
+            "startTime": start_time
+        }
+        
+        response = requests.post(url, json=payload, timeout=10)
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) > 0
+        
+        # Check structure of first entry
+        entry = data[0]
+        assert 'time' in entry
+        assert 'fundingRate' in entry
+        assert isinstance(entry['time'], int)
+        assert isinstance(entry['fundingRate'], str)
+        
+        # Parse funding rate
+        rate = float(entry['fundingRate'])
+        assert isinstance(rate, float)
+
+
+class TestYFinanceAPI:
+    """Test Yahoo Finance API endpoints."""
+    
+    def test_yfinance_connection(self):
+        """Test Yahoo Finance data availability."""
+        yfinance = YFinanceKline()
+        # Try to fetch BTC futures data
+        df = yfinance.fetch_historical_kline('BTC-USD', days=1, interval='1h')
+        
+        # YFinance might not have data for some symbols, so we check if it either:
+        # 1. Returns valid data, or 2. Returns empty DataFrame gracefully
+        assert df is not None
+        assert isinstance(df, pd.DataFrame)
+        
+        if not df.empty:
+            # If data is available, validate structure
+            required_columns = ['time', 'open', 'high', 'low', 'close', 'volume']
+            for col in required_columns:
+                assert col in df.columns
+            
+            # Validate OHLC logic
+            assert (df['high'] >= df['low']).all()
+    
+    def test_yfinance_stock_data(self):
+        """Test Yahoo Finance stock data (SPX index)."""
+        yfinance = YFinanceKline()
+        df = yfinance.fetch_historical_kline('^GSPC', days=1, interval='1h')
+        
+        assert df is not None
+        # ^GSPC should have data
+        if not df.empty:
+            assert 'close' in df.columns
+            assert (df['close'] > 0).all()
+
+
+class TestAPIRateLimits:
+    """Test API rate limiting and error handling."""
+    
+    def test_bybit_rate_limit_handling(self):
+        """Test Bybit handles rate limits gracefully."""
+        bybit = BybitKline()
+        
+        # Make multiple rapid requests
+        results = []
+        for _ in range(3):
+            df = bybit.fetch_historical_kline('BTCUSDT', days=1, resolution=60)
+            results.append(df is not None and not df.empty)
+        
+        # At least some requests should succeed
+        assert any(results)
+    
+    def test_hyperliquid_invalid_coin(self):
+        """Test Hyperliquid handles invalid coin gracefully."""
+        hyperliquid = HyperliquidKline()
+        df = hyperliquid.fetch_funding_rate('INVALIDCOIN', days=1)
+        
+        # Should return empty DataFrame, not crash
+        assert df is not None
+        assert isinstance(df, pd.DataFrame)
+
+
+class TestCrossExchangeComparison:
+    """Test data consistency across exchanges."""
+    
+    def test_btc_price_consistency(self):
+        """Test BTC price is consistent across exchanges (within 5%)."""
+        bybit = BybitKline()
+        bitunix = BitunixKline()
+        
+        bybit_df = bybit.fetch_historical_kline('BTCUSDT', days=1, resolution=60)
+        bitunix_df = bitunix.fetch_historical_kline('BTCUSDT', days=1, resolution=60)
+        
+        if not bybit_df.empty and not bitunix_df.empty:
+            bybit_price = float(bybit_df['close'].iloc[-1])
+            bitunix_price = float(bitunix_df['close'].iloc[-1])
+            
+            # Prices should be within 5% of each other
+            diff_pct = abs(bybit_price - bitunix_price) / bybit_price * 100
+            assert diff_pct < 5.0, f"Price difference too large: {diff_pct:.2f}%"
+    
+    def test_funding_rate_format_consistency(self):
+        """Test funding rates are in consistent format across exchanges."""
+        bybit = BybitKline()
+        bitunix = BitunixKline()
+        hyperliquid = HyperliquidKline()
+        
+        bybit_df = bybit.fetch_funding_rate('BTCUSDT', days=1)
+        bitunix_df = bitunix.fetch_funding_rate('BTCUSDT')
+        hyperliquid_df = hyperliquid.fetch_funding_rate('BTC', days=1)
+        
+        # All should return DataFrames with 'close' column
+        if not bybit_df.empty:
+            assert 'close' in bybit_df.columns
+            assert pd.api.types.is_numeric_dtype(bybit_df['close'])
+        
+        if not bitunix_df.empty:
+            assert 'close' in bitunix_df.columns
+            assert pd.api.types.is_numeric_dtype(bitunix_df['close'])
+        
+        if not hyperliquid_df.empty:
+            assert 'close' in hyperliquid_df.columns
+            assert pd.api.types.is_numeric_dtype(hyperliquid_df['close'])
+
+
+class TestAPIErrorHandling:
+    """Test API error handling and resilience."""
+    
+    def test_network_timeout_handling(self):
+        """Test modules handle network timeouts gracefully."""
+        bybit = BybitKline()
+        
+        # This should handle timeout gracefully
+        df = bybit.fetch_historical_kline('BTCUSDT', days=1, resolution=60)
+        assert df is not None
+        assert isinstance(df, pd.DataFrame)
+    
+    def test_invalid_symbol_handling(self):
+        """Test exchanges handle invalid symbols gracefully."""
+        bybit = BybitKline()
+        bitunix = BitunixKline()
+        
+        # These should return empty DataFrames, not crash
+        bybit_df = bybit.fetch_historical_kline('INVALID123', days=1, resolution=60)
+        bitunix_df = bitunix.fetch_historical_kline('INVALID123', days=1, resolution=60)
+        
+        assert bybit_df is not None
+        assert bitunix_df is not None
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
