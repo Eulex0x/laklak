@@ -11,6 +11,8 @@ Tests:
 - Error responses
 """
 
+from __future__ import annotations
+
 import pytest
 import requests
 from datetime import datetime, timedelta, timezone
