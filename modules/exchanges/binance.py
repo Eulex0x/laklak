@@ -1,6 +1,7 @@
 import pandas as pd
 import requests
 from datetime import datetime, timedelta, timezone
+from typing import Union
 import os
 import logging
 
@@ -42,7 +43,7 @@ class BinanceFuturesKline:
     def fetch_historical_kline(
         symbol: str,
         days: int,
-        resolution: int | str = 60,
+        resolution: Union[int, str] = 60,
         start_time=None,
         end_time=None
     ) -> pd.DataFrame:
