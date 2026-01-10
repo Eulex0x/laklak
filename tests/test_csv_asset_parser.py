@@ -220,11 +220,13 @@ ETHUSDT,bybit+bitunix,bybit+bitunix
             assert "BTCUSDT" in configs
             assert "ETHUSDT" in configs
             
-            # BTCUSDT should have deribit in OHLC
+            # BTCUSDT should have binance in OHLC
             btc = configs["BTCUSDT"]
-            assert btc.has_ohlc("bybit")
-            assert btc.has_ohlc("deribit")
-            assert btc.has_ohlc("bitunix")
+            assert btc.has_ohlc("binance")
+            # BTCUSDT should have funding rates from multiple exchanges
+            assert btc.has_funding_rate("bybit")
+            assert btc.has_funding_rate("bitunix")
+            assert btc.has_funding_rate("hyperliquid")
             
             # Yahoo Finance assets should have no funding_rate
             if "BTC=F" in configs:
