@@ -178,25 +178,78 @@ class HistoricalBackfill:
             "total_chunks": 0,
         }
     
-    def load_coins(self, coins_file: str = "coins.txt") -> list:
+    def load_coins_smart(self, asset_csv: str = "assets.csv") -> list:
         """
-        Load the list of coins from a file with exchange specifications.
+        Intelligently load coins from assets.csv using ohlc_exchanges column.
+        This method reads the CSV file and extracts the OHLC exchange for each asset.
         
-        Format: SYMBOL [exchanges]
+        Format: CSV with columns [symbol, ohlc_exchanges, funding_rate_exchanges]
         Examples:
-            BTCUSDT bybit
-            BTC-USD yfinance
-            AAPL yfinance
+            BTCUSDT,binance,binance+bybit+bitunix+hyperliquid
+            BTC=F,yfinance,
+            ETHUSDT,binance,binance+bybit
         
         Args:
-            coins_file (str): Path to the coins file
+            asset_csv (str): Path to the assets CSV file
             
         Returns:
-            list: List of tuples (symbol, exchanges_list)
+            list: List of tuples (symbol, exchange) where exchange is from ohlc_exchanges
+        """
+        if not os.path.exists(asset_csv):
+            self.logger.error(f"Assets file not found: {asset_csv}")
+            return []
+        
+        try:
+            import csv
+            assets = []
+            with open(asset_csv, "r") as f:
+                # Skip comment lines
+                for line in f:
+                    if line.startswith('symbol,'):
+                        break
+                
+                # Parse CSV
+                reader = csv.DictReader([line] + f.readlines())
+                for row in reader:
+                    if not row or not row.get('symbol'):
+                        continue
+                    
+                    symbol = row['symbol'].strip()
+                    ohlc_exchange = row.get('ohlc_exchanges', '').strip()
+                    
+                    if not symbol:
+                        continue
+                    
+                    # Use ohlc_exchange from CSV, default to binance if empty
+                    exchange = ohlc_exchange if ohlc_exchange else 'binance'
+                    assets.append((symbol, exchange))
+            
+            self.logger.info(f"Loaded {len(assets)} coins from {asset_csv} (Smart mode - reading ohlc_exchanges)")
+            return assets
+        
+        except Exception as e:
+            self.logger.error(f"Failed to load coins from CSV: {e}")
+            return []
+    
+    def load_coins(self, coins_file: str = "asset.txt") -> list:
+        """
+        Load coins from asset.txt file (fallback/cache method).
+        If asset.txt doesn't exist, it will try to load from assets.csv instead.
+        
+        Format: SYMBOL exchange
+        Examples:
+            BTCUSDT binance
+            BTC=F yfinance
+        
+        Args:
+            coins_file (str): Path to the asset file
+            
+        Returns:
+            list: List of tuples (symbol, exchange)
         """
         if not os.path.exists(coins_file):
-            self.logger.error(f"Coins file not found: {coins_file}")
-            return []
+            self.logger.warning(f"Asset file not found: {coins_file}. Trying assets.csv instead...")
+            return self.load_coins_smart("assets.csv")
         
         try:
             assets = []
@@ -207,16 +260,12 @@ class HistoricalBackfill:
                         continue
                     
                     parts = line.split()
+                    if len(parts) < 2:
+                        continue
+                    
                     symbol = parts[0]
-                    
-                    # Parse exchanges (default to bybit only)
-                    if len(parts) > 1:
-                        exchanges_str = parts[1]
-                        exchanges = exchanges_str.split("+")
-                    else:
-                        exchanges = ["bybit"]
-                    
-                    assets.append((symbol, exchanges))
+                    exchange = parts[1]
+                    assets.append((symbol, exchange))
             
             self.logger.info(f"Loaded {len(assets)} coins from {coins_file}")
             return assets
@@ -250,27 +299,31 @@ class HistoricalBackfill:
         # If no suffix found, just add =F
         return f"{symbol}=F"
     
-    def backfill_coin(self, symbol: str, exchanges: list) -> bool:
+    def backfill_coin(self, symbol: str, exchange: str) -> bool:
         """
-        Fetch historical data for a single coin in date chunks and store it in InfluxDB.
+        Fetch historical data for a single coin from a specific exchange and store in InfluxDB.
         
-        Breaks the total time period into smaller chunks to respect the 1000 points API limit.
+        Intelligently routes to the correct exchange module based on the exchange parameter.
+        Breaks the total time period into smaller chunks to respect API limits.
         
         Args:
-            symbol (str): The coin symbol (e.g., BTCUSDT, BTC-USD)
-            exchanges (list): List of exchanges to fetch from
+            symbol (str): The coin symbol (e.g., BTCUSDT, BTC=F)
+            exchange (str): The exchange to fetch from (binance, bybit, yfinance, bitunix, deribit)
             
         Returns:
-            bool: True if at least one exchange was successful, False otherwise
+            bool: True if successful, False otherwise
         """
-        any_success = False
-        total_points_written = 0
+        if not exchange:
+            self.logger.warning(f"No exchange specified for {symbol}, skipping")
+            return False
+        
+        exchange_lower = exchange.lower().strip()
         
         # Calculate date chunks
         end_date = datetime.now()
         start_date = end_date - timedelta(days=self.total_days)
         
-        self.logger.info(f"Fetching {symbol} from {start_date.date()} to {end_date.date()} in {self.chunk_size_days} day chunks")
+        self.logger.info(f"Fetching {symbol} from {exchange_lower.upper()} ({start_date.date()} to {end_date.date()})")
         
         # Generate chunks
         chunk_starts = []
@@ -280,211 +333,270 @@ class HistoricalBackfill:
             current_date += timedelta(days=self.chunk_size_days)
         
         total_chunks = len(chunk_starts)
-        self.stats["total_chunks"] += total_chunks
+        total_points_written = 0
         
-        # Fetch from Bybit if specified
-        if "bybit" in exchanges and BACKFILL_CONFIG["ENABLED_EXCHANGES"]["bybit"]:
-            try:
-                for chunk_num, chunk_start in enumerate(chunk_starts, 1):
-                    chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
-                    if chunk_end > end_date:
-                        chunk_end = end_date
+        # Route to appropriate exchange module
+        try:
+            if exchange_lower == "binance":
+                return self._backfill_binance(symbol, chunk_starts, end_date, total_chunks)
+            
+            elif exchange_lower == "bybit":
+                return self._backfill_bybit(symbol, chunk_starts, end_date, total_chunks)
+            
+            elif exchange_lower == "yfinance":
+                return self._backfill_yfinance(symbol, chunk_starts, end_date, total_chunks)
+            
+            elif exchange_lower == "bitunix":
+                return self._backfill_bitunix(symbol, chunk_starts, end_date, total_chunks)
+            
+            elif exchange_lower == "deribit":
+                return self._backfill_deribit(symbol, chunk_starts, end_date, total_chunks)
+            
+            else:
+                self.logger.error(f"Unknown exchange: {exchange}")
+                return False
+        
+        except Exception as e:
+            self.logger.error(f"Error backfilling {symbol} from {exchange}: {e}")
+            self.stats["failed_coins"] += 1
+            return False
+    
+    def _backfill_binance(self, symbol: str, chunk_starts: list, end_date, total_chunks: int) -> bool:
+        """Backfill from Binance Futures"""
+        try:
+            from modules.exchanges.binance import BinanceFuturesKline
+            binance = BinanceFuturesKline()
+            total_points_written = 0
+            
+            for chunk_num, chunk_start in enumerate(chunk_starts, 1):
+                chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
+                if chunk_end > end_date:
+                    chunk_end = end_date
+                
+                chunk_days = (chunk_end - chunk_start).total_seconds() / 86400
+                
+                try:
+                    df = binance.fetch_historical_kline(
+                        symbol=symbol,
+                        days=int(chunk_days) + 1,
+                        resolution='1m'
+                    )
                     
-                    chunk_days = (chunk_end - chunk_start).total_seconds() / 86400
-                    
-                    self.logger.debug(f"Bybit [{chunk_num}/{total_chunks}] {symbol}: {chunk_start.date()} to {chunk_end.date()} ({chunk_days:.2f} days)")
-                    
-                    try:
-                        df = self.bybit.fetch_historical_kline(
-                            currency=symbol,
-                            days=chunk_days,
-                            resolution=self.bybit_resolution,
-                            start_time=chunk_start,
-                            end_time=chunk_end
+                    if not df.empty:
+                        valid_points = self.writer.write_market_data(
+                            df=df,
+                            symbol=symbol,
+                            exchange="Binance",
+                            data_type="kline"
                         )
                         
-                        if not df.empty:
-                            valid_points = self.writer.write_market_data(
-                                df=df,
-                                symbol=symbol,
-                                exchange="Bybit",
-                                data_type="kline"
-                            )
-                            
-                            if valid_points > 0:
-                                total_points_written += valid_points
-                                any_success = True
-                                self.logger.debug(f"Bybit [{chunk_num}/{total_chunks}] {symbol}: Wrote {valid_points} points")
-                        else:
-                            self.logger.debug(f"Bybit [{chunk_num}/{total_chunks}] {symbol}: No data returned")
-                    
-                    except Exception as e:
-                        self.logger.warning(f"Bybit [{chunk_num}/{total_chunks}] {symbol}: Chunk error: {e}")
-                        continue
+                        if valid_points > 0:
+                            total_points_written += valid_points
+                            self.logger.debug(f"Binance [{chunk_num}/{total_chunks}] {symbol}: Wrote {valid_points} points")
+                    else:
+                        self.logger.debug(f"Binance [{chunk_num}/{total_chunks}] {symbol}: No data")
                 
-                if any_success:
-                    self.logger.info(f"Bybit: Successfully backfilled {total_points_written} points for {symbol}")
-                else:
-                    self.logger.warning(f"Bybit: No data written for {symbol}")
+                except Exception as e:
+                    self.logger.warning(f"Binance [{chunk_num}/{total_chunks}] {symbol}: {e}")
+                    continue
             
-            except Exception as e:
-                self.logger.error(f"Bybit: Failed to backfill {symbol}: {e}", exc_info=False)
+            if total_points_written > 0:
+                self.logger.info(f"Binance: Successfully wrote {total_points_written} points for {symbol}")
+                self.stats["successful_coins"] += 1
+                return True
+            else:
+                self.logger.warning(f"Binance: No data written for {symbol}")
+                self.stats["failed_coins"] += 1
+                return False
         
-        # Fetch from YFinance if specified (only for supported coins: BTC, ETH, XRP, SOL)
-        yfinance_supported = {"BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT"}
-        
-        if "yfinance" in exchanges and symbol in yfinance_supported and BACKFILL_CONFIG["ENABLED_EXCHANGES"]["yfinance"]:
-            try:
-                for chunk_num, chunk_start in enumerate(chunk_starts, 1):
-                    chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
-                    if chunk_end > end_date:
-                        chunk_end = end_date
+        except Exception as e:
+            self.logger.error(f"Binance backfill error: {e}")
+            self.stats["failed_coins"] += 1
+            return False
+    
+    def _backfill_bybit(self, symbol: str, chunk_starts: list, end_date, total_chunks: int) -> bool:
+        """Backfill from Bybit"""
+        try:
+            total_points_written = 0
+            
+            for chunk_num, chunk_start in enumerate(chunk_starts, 1):
+                chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
+                if chunk_end > end_date:
+                    chunk_end = end_date
+                
+                chunk_days = (chunk_end - chunk_start).total_seconds() / 86400
+                
+                try:
+                    df = self.bybit.fetch_historical_kline(
+                        currency=symbol,
+                        days=chunk_days,
+                        resolution=self.bybit_resolution,
+                        start_time=chunk_start,
+                        end_time=chunk_end
+                    )
                     
-                    chunk_days = (chunk_end - chunk_start).total_seconds() / 86400
-                    
-                    self.logger.debug(f"YFinance [{chunk_num}/{total_chunks}] {symbol}: {chunk_start.date()} to {chunk_end.date()}")
-                    
-                    try:
-                        # Convert symbol for YFinance (e.g., BTCUSDT -> BTC=F)
-                        yfinance_symbol = self._convert_to_yfinance_symbol(symbol)
-                        
-                        df = self.yfinance.fetch_historical_kline(
-                            symbol=yfinance_symbol,
-                            days=chunk_days,
-                            interval=self.yfinance_interval,
-                            start_time=chunk_start,
-                            end_time=chunk_end
+                    if not df.empty:
+                        valid_points = self.writer.write_market_data(
+                            df=df,
+                            symbol=symbol,
+                            exchange="Bybit",
+                            data_type="kline"
                         )
                         
-                        if not df.empty:
-                            valid_points = self.writer.write_market_data(
-                                df=df,
-                                symbol=symbol,
-                                exchange="YFinance",
-                                data_type="kline"
-                            )
-                            
-                            if valid_points > 0:
-                                total_points_written += valid_points
-                                any_success = True
-                                self.logger.debug(f"YFinance [{chunk_num}/{total_chunks}] {symbol}: Wrote {valid_points} points")
-                        else:
-                            self.logger.debug(f"YFinance [{chunk_num}/{total_chunks}] {symbol}: No data returned")
-                    
-                    except Exception as e:
-                        self.logger.warning(f"YFinance [{chunk_num}/{total_chunks}] {symbol}: Chunk error: {e}")
-                        continue
+                        if valid_points > 0:
+                            total_points_written += valid_points
+                            self.logger.debug(f"Bybit [{chunk_num}/{total_chunks}] {symbol}: Wrote {valid_points} points")
                 
-                if any_success:
-                    self.logger.info(f"YFinance: Successfully backfilled {total_points_written} points for {symbol}")
-                else:
-                    self.logger.warning(f"YFinance: No data written for {symbol}")
+                except Exception as e:
+                    self.logger.warning(f"Bybit [{chunk_num}/{total_chunks}] {symbol}: {e}")
+                    continue
             
-            except Exception as e:
-                self.logger.error(f"YFinance: Failed to backfill {symbol}: {e}", exc_info=False)
+            if total_points_written > 0:
+                self.logger.info(f"Bybit: Successfully wrote {total_points_written} points for {symbol}")
+                self.stats["successful_coins"] += 1
+                return True
+            else:
+                self.stats["failed_coins"] += 1
+                return False
         
-        # Fetch from Bitunix if specified
-        if "bitunix" in exchanges and BACKFILL_CONFIG["ENABLED_EXCHANGES"]["bitunix"]:
-            try:
-                for chunk_num, chunk_start in enumerate(chunk_starts, 1):
-                    chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
-                    if chunk_end > end_date:
-                        chunk_end = end_date
+        except Exception as e:
+            self.logger.error(f"Bybit backfill error: {e}")
+            self.stats["failed_coins"] += 1
+            return False
+    
+    def _backfill_yfinance(self, symbol: str, chunk_starts: list, end_date, total_chunks: int) -> bool:
+        """Backfill from Yahoo Finance"""
+        try:
+            total_points_written = 0
+            
+            for chunk_num, chunk_start in enumerate(chunk_starts, 1):
+                chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
+                if chunk_end > end_date:
+                    chunk_end = end_date
+                
+                chunk_days = (chunk_end - chunk_start).total_seconds() / 86400
+                
+                try:
+                    df = self.yfinance.fetch_historical_kline(
+                        symbol=symbol,
+                        days=chunk_days,
+                        interval=self.yfinance_interval,
+                        start_time=chunk_start,
+                        end_time=chunk_end
+                    )
                     
-                    chunk_days = (chunk_end - chunk_start).total_seconds() / 86400
-                    
-                    self.logger.debug(f"Bitunix [{chunk_num}/{total_chunks}] {symbol}: {chunk_start.date()} to {chunk_end.date()} ({chunk_days:.2f} days)")
-                    
-                    try:
-                        df = self.bitunix.fetch_historical_kline(
-                            currency=symbol,
-                            days=chunk_days,
-                            resolution=1,  # 1-minute for bitunix
-                            start_time=chunk_start,
-                            end_time=chunk_end
+                    if not df.empty:
+                        valid_points = self.writer.write_market_data(
+                            df=df,
+                            symbol=symbol,
+                            exchange="YFinance",
+                            data_type="kline"
                         )
                         
-                        if not df.empty:
-                            valid_points = self.writer.write_market_data(
-                                df=df,
-                                symbol=symbol,
-                                exchange="Bitunix",
-                                data_type="kline"
-                            )
-                            
-                            if valid_points > 0:
-                                total_points_written += valid_points
-                                any_success = True
-                                self.logger.debug(f"Bitunix [{chunk_num}/{total_chunks}] {symbol}: Wrote {valid_points} points")
-                        else:
-                            self.logger.debug(f"Bitunix [{chunk_num}/{total_chunks}] {symbol}: No data returned")
-                    
-                    except Exception as e:
-                        self.logger.warning(f"Bitunix [{chunk_num}/{total_chunks}] {symbol}: Chunk error: {e}")
-                        continue
+                        if valid_points > 0:
+                            total_points_written += valid_points
+                            self.logger.debug(f"YFinance [{chunk_num}/{total_chunks}] {symbol}: Wrote {valid_points} points")
                 
-                if any_success:
-                    self.logger.info(f"Bitunix: Successfully backfilled {total_points_written} points for {symbol}")
-                else:
-                    self.logger.warning(f"Bitunix: No data written for {symbol}")
+                except Exception as e:
+                    self.logger.warning(f"YFinance [{chunk_num}/{total_chunks}] {symbol}: {e}")
+                    continue
             
-            except Exception as e:
-                self.logger.error(f"Bitunix: Failed to backfill {symbol}: {e}", exc_info=False)
+            if total_points_written > 0:
+                self.logger.info(f"YFinance: Successfully wrote {total_points_written} points for {symbol}")
+                self.stats["successful_coins"] += 1
+                return True
+            else:
+                self.stats["failed_coins"] += 1
+                return False
         
-        # Fetch from Deribit if specified
-        if "deribit" in exchanges and BACKFILL_CONFIG["ENABLED_EXCHANGES"]["deribit"]:
-            try:
-                for chunk_num, chunk_start in enumerate(chunk_starts, 1):
-                    chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
-                    if chunk_end > end_date:
-                        chunk_end = end_date
+        except Exception as e:
+            self.logger.error(f"YFinance backfill error: {e}")
+            self.stats["failed_coins"] += 1
+            return False
+    
+    def _backfill_bitunix(self, symbol: str, chunk_starts: list, end_date, total_chunks: int) -> bool:
+        """Backfill from Bitunix"""
+        try:
+            total_points_written = 0
+            
+            for chunk_num, chunk_start in enumerate(chunk_starts, 1):
+                chunk_end = chunk_start + timedelta(days=self.chunk_size_days)
+                if chunk_end > end_date:
+                    chunk_end = end_date
+                
+                chunk_days = (chunk_end - chunk_start).total_seconds() / 86400
+                
+                try:
+                    df = self.bitunix.fetch_historical_kline(
+                        currency=symbol,
+                        days=chunk_days,
+                        resolution=self.bybit_resolution,
+                        start_time=chunk_start,
+                        end_time=chunk_end
+                    )
                     
-                    chunk_days = (chunk_end - chunk_start).total_seconds() / 86400
-                    
-                    self.logger.debug(f"Deribit [{chunk_num}/{total_chunks}] {symbol}: {chunk_start.date()} to {chunk_end.date()} ({chunk_days:.2f} days)")
-                    
-                    try:
-                        df = self.deribit.fetch_historical_dvol(
-                            currency=symbol,
-                            days=chunk_days,
-                            resolution="1",  # 1-minute for deribit
-                            start_time=chunk_start,
-                            end_time=chunk_end
+                    if not df.empty:
+                        valid_points = self.writer.write_market_data(
+                            df=df,
+                            symbol=symbol,
+                            exchange="Bitunix",
+                            data_type="kline"
                         )
                         
-                        if not df.empty:
-                            valid_points = self.writer.write_market_data(
-                                df=df,
-                                symbol=symbol,
-                                exchange="Deribit",
-                                data_type="kline"
-                            )
-                            
-                            if valid_points > 0:
-                                total_points_written += valid_points
-                                any_success = True
-                                self.logger.debug(f"Deribit [{chunk_num}/{total_chunks}] {symbol}: Wrote {valid_points} points")
-                        else:
-                            self.logger.debug(f"Deribit [{chunk_num}/{total_chunks}] {symbol}: No data returned")
-                    
-                    except Exception as e:
-                        self.logger.warning(f"Deribit [{chunk_num}/{total_chunks}] {symbol}: Chunk error: {e}")
-                        continue
+                        if valid_points > 0:
+                            total_points_written += valid_points
+                            self.logger.debug(f"Bitunix [{chunk_num}/{total_chunks}] {symbol}: Wrote {valid_points} points")
                 
-                if any_success:
-                    self.logger.info(f"Deribit: Successfully backfilled {total_points_written} points for {symbol}")
-                else:
-                    self.logger.warning(f"Deribit: No data written for {symbol}")
+                except Exception as e:
+                    self.logger.warning(f"Bitunix [{chunk_num}/{total_chunks}] {symbol}: {e}")
+                    continue
+            
+            if total_points_written > 0:
+                self.logger.info(f"Bitunix: Successfully wrote {total_points_written} points for {symbol}")
+                self.stats["successful_coins"] += 1
+                return True
+            else:
+                self.stats["failed_coins"] += 1
+                return False
+        
+        except Exception as e:
+            self.logger.error(f"Bitunix backfill error: {e}")
+            self.stats["failed_coins"] += 1
+            return False
+    
+    def _backfill_deribit(self, symbol: str, chunk_starts: list, end_date, total_chunks: int) -> bool:
+        """Backfill from Deribit (DVOL data)"""
+        try:
+            total_points_written = 0
+            
+            try:
+                df = self.deribit.fetch_historical_dvol(symbol=symbol, days=self.total_days)
+                
+                if not df.empty:
+                    valid_points = self.writer.write_market_data(
+                        df=df,
+                        symbol=symbol,
+                        exchange="Deribit",
+                        data_type="dvol"
+                    )
+                    
+                    if valid_points > 0:
+                        total_points_written += valid_points
+                        self.logger.debug(f"Deribit {symbol}: Wrote {valid_points} points")
             
             except Exception as e:
-                self.logger.error(f"Deribit: Failed to backfill {symbol}: {e}", exc_info=False)
+                self.logger.warning(f"Deribit {symbol}: {e}")
+            
+            if total_points_written > 0:
+                self.logger.info(f"Deribit: Successfully wrote {total_points_written} points for {symbol}")
+                self.stats["successful_coins"] += 1
+                return True
+            else:
+                self.stats["failed_coins"] += 1
+                return False
         
-        # Update stats
-        if any_success:
-            self.stats["successful_coins"] += 1
-            self.stats["total_points"] += total_points_written
-            return True
-        else:
+        except Exception as e:
+            self.logger.error(f"Deribit backfill error: {e}")
             self.stats["failed_coins"] += 1
             return False
     
@@ -511,10 +623,9 @@ class HistoricalBackfill:
         self.stats["total_coins"] = len(coins)
         
         # Process each coin
-        for i, (symbol, exchanges) in enumerate(coins, 1):
-            exchanges_str = "+".join(exchanges)
-            self.logger.info(f"[{i}/{len(coins)}] Backfilling {symbol} ({exchanges_str})")
-            self.backfill_coin(symbol, exchanges)
+        for i, (symbol, exchange) in enumerate(coins, 1):
+            self.logger.info(f"[{i}/{len(coins)}] Backfilling {symbol} from {exchange.upper()}")
+            self.backfill_coin(symbol, exchange)
             
             # Cooldown every 100 coins to avoid rate limiting
             if i % 10 == 0 and i < len(coins):

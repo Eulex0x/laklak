@@ -260,7 +260,12 @@ class DataCollector:
                     self.logger.debug(f"Bybit: No funding rate data returned for {symbol}")
             
             except Exception as e:
-                self.logger.debug(f"Bybit: Failed to process funding rate for {symbol}: {e}")
+                error_msg = str(e).lower()
+                # Check if symbol doesn't exist on this exchange
+                if "invalid symbol" in error_msg or "symbol invalid" in error_msg or "not found" in error_msg or "unknown symbol" in error_msg:
+                    self.logger.debug(f"Bybit: Symbol {symbol} not available on Bybit (skipping funding rate)")
+                else:
+                    self.logger.debug(f"Bybit: Failed to process funding rate for {symbol}: {e}")
         
         # Fetch Bitunix Kline Data (only if specified in ohlc_exchanges)
         if "bitunix" in ohlc_exchanges:
@@ -317,7 +322,12 @@ class DataCollector:
                     self.logger.debug(f"Bitunix: Could not determine funding rate period for {symbol}")
             
             except Exception as e:
-                self.logger.debug(f"Bitunix: Failed to process funding rate period for {symbol}: {e}")
+                error_msg = str(e).lower()
+                # Check if symbol doesn't exist on this exchange
+                if "symbol invalid" in error_msg or "symbol invalid" in error_msg or "not found" in error_msg or "unknown symbol" in error_msg:
+                    self.logger.debug(f"Bitunix: Symbol {symbol} not available on Bitunix (skipping funding rate)")
+                else:
+                    self.logger.debug(f"Bitunix: Failed to process funding rate period for {symbol}: {e}")
             
             # Then fetch and write funding rate with the cached period
             try:
@@ -348,7 +358,12 @@ class DataCollector:
                     self.logger.debug(f"Bitunix: No funding rate data returned for {symbol}")
             
             except Exception as e:
-                self.logger.debug(f"Bitunix: Failed to process funding rate for {symbol}: {e}")
+                error_msg = str(e).lower()
+                # Check if symbol doesn't exist on this exchange
+                if "symbol invalid" in error_msg or "symbol invalid" in error_msg or "not found" in error_msg or "unknown symbol" in error_msg:
+                    self.logger.debug(f"Bitunix: Symbol {symbol} not available on Bitunix (skipping funding rate)")
+                else:
+                    self.logger.debug(f"Bitunix: Failed to process funding rate for {symbol}: {e}")
         
         # Fetch Hyperliquid Funding Rate Data (independent of OHLC exchanges - only if specified in funding_rate_exchanges)
         if "hyperliquid" in funding_rate_exchanges:
@@ -374,7 +389,12 @@ class DataCollector:
                     self.logger.debug(f"Hyperliquid: Could not determine funding rate period for {base_coin}")
             
             except Exception as e:
-                self.logger.debug(f"Hyperliquid: Failed to process funding rate period for {base_coin}: {e}")
+                error_msg = str(e).lower()
+                # Check if symbol doesn't exist on this exchange
+                if "symbol invalid" in error_msg or "invalid" in error_msg or "not found" in error_msg:
+                    self.logger.debug(f"Hyperliquid: Symbol {base_coin} not available on Hyperliquid (skipping funding rate)")
+                else:
+                    self.logger.debug(f"Hyperliquid: Failed to process funding rate period for {base_coin}: {e}")
             
             # Then fetch and write funding rate with the cached period
             try:
@@ -405,7 +425,12 @@ class DataCollector:
                     self.logger.debug(f"Hyperliquid: No funding rate data returned for {symbol}")
             
             except Exception as e:
-                self.logger.debug(f"Hyperliquid: Failed to process funding rate for {symbol}: {e}")
+                error_msg = str(e).lower()
+                # Check if symbol doesn't exist on this exchange
+                if "symbol invalid" in error_msg or "invalid" in error_msg or "not found" in error_msg or "500 server error" in error_msg:
+                    self.logger.debug(f"Hyperliquid: Symbol {base_coin} not available on Hyperliquid (skipping funding rate)")
+                else:
+                    self.logger.debug(f"Hyperliquid: Failed to process funding rate for {symbol}: {e}")
         
         # Fetch Deribit DVOL Data (only if specified in ohlc_exchanges)
         if "deribit" in ohlc_exchanges:
@@ -589,6 +614,14 @@ def main():
         log_file=config["LOG_FILE"],
         log_level=log_level
     )
+    
+    # Suppress debug/verbose logging from exchange modules (unless in debug mode)
+    if not debug_mode:
+        logging.getLogger('hyperliquid').setLevel(logging.WARNING)
+        logging.getLogger('bybit').setLevel(logging.WARNING)
+        logging.getLogger('bitunix').setLevel(logging.WARNING)
+        logging.getLogger('deribit').setLevel(logging.WARNING)
+        logging.getLogger('yfinance').setLevel(logging.WARNING)
     
     if debug_mode:
         logger.info("=" * 80)

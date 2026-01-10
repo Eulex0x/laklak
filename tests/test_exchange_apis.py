@@ -21,6 +21,7 @@ from modules.exchanges.bybit import BybitKline
 from modules.exchanges.bitunix import BitunixKline
 from modules.exchanges.deribit import DeribitDVOL
 from modules.exchanges.hyperliquid import HyperliquidKline
+from modules.exchanges.binance import BinanceFuturesKline
 
 # Lazy import for yfinance to avoid Python 3.9 compatibility issues
 # yfinance uses Python 3.10+ union syntax (|) which breaks on 3.9
@@ -207,7 +208,156 @@ class TestDeribitAPI:
         assert (df['close'] < 500).all()
 
 
-class TestHyperliquidAPI:
+class TestBinanceFuturesAPI:
+    """Test Binance Futures exchange API endpoints."""
+    
+    def test_binance_connection(self):
+        """Test Binance Futures API connectivity."""
+        try:
+            response = requests.get("https://fapi.binance.com/fapi/v1/time", timeout=10)
+            # API might be rate limited, that's acceptable
+            assert response.status_code in [200, 429]
+            if response.status_code == 200:
+                data = response.json()
+                assert 'serverTime' in data
+        except requests.exceptions.RequestException:
+            # Network issues are acceptable in tests
+            pytest.skip("Binance Futures API unavailable")
+    
+    def test_binance_kline_data(self):
+        """Test Binance Futures kline/OHLC data fetching."""
+        binance = BinanceFuturesKline()
+        df = binance.fetch_historical_kline('BTCUSDT', days=1, resolution=60)
+        
+        assert df is not None
+        # API might be rate limited, empty DataFrame is acceptable
+        if df.empty:
+            pytest.skip("Binance Futures API rate limited or unavailable")
+        
+        assert len(df) > 0
+        
+        # Check required columns
+        required_columns = ['time', 'open', 'high', 'low', 'close', 'volume']
+        for col in required_columns:
+            assert col in df.columns, f"Missing column: {col}"
+        
+        # Validate data types
+        assert pd.api.types.is_datetime64_any_dtype(df['time'])
+        # Convert to numeric if needed (some exchanges return strings)
+        df['open'] = pd.to_numeric(df['open'], errors='coerce')
+        df['high'] = pd.to_numeric(df['high'], errors='coerce')
+        df['low'] = pd.to_numeric(df['low'], errors='coerce')
+        df['close'] = pd.to_numeric(df['close'], errors='coerce')
+        df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
+        assert pd.api.types.is_numeric_dtype(df['open'])
+        assert pd.api.types.is_numeric_dtype(df['close'])
+        assert pd.api.types.is_numeric_dtype(df['volume'])
+        
+        # Validate OHLC logic
+        assert (df['high'] >= df['low']).all()
+        assert (df['high'] >= df['open']).all()
+        assert (df['high'] >= df['close']).all()
+        assert (df['low'] <= df['open']).all()
+        assert (df['low'] <= df['close']).all()
+        assert (df['volume'] >= 0).all()
+    
+    def test_binance_kline_interval_formats(self):
+        """Test Binance Futures kline with different interval formats."""
+        binance = BinanceFuturesKline()
+        
+        # Test with interval string
+        df1 = binance.fetch_historical_kline('BTCUSDT', days=1, resolution='1h')
+        if not df1.empty:
+            assert len(df1) > 0
+        
+        # Test with minutes integer
+        df2 = binance.fetch_historical_kline('BTCUSDT', days=1, resolution=60)
+        if not df2.empty:
+            assert len(df2) > 0
+        
+        # Test with 4h interval
+        df3 = binance.fetch_historical_kline('BTCUSDT', days=1, resolution='4h')
+        if not df3.empty:
+            assert len(df3) > 0
+    
+    def test_binance_funding_rate(self):
+        """Test Binance Futures funding rate data fetching."""
+        binance = BinanceFuturesKline()
+        df = binance.fetch_funding_rate('BTCUSDT', days=1)
+        
+        assert df is not None
+        # API might be rate limited, empty DataFrame is acceptable
+        if df.empty:
+            pytest.skip("Binance Futures API rate limited or unavailable")
+        
+        assert len(df) > 0
+        
+        # Check structure
+        required_columns = ['time', 'open', 'high', 'low', 'close', 'volume']
+        for col in required_columns:
+            assert col in df.columns
+        
+        assert 'close' in df.columns
+        assert pd.api.types.is_numeric_dtype(df['close'])
+        
+        # Funding rates should be reasonable (between -100% and +100%)
+        assert (df['close'].abs() < 1.0).all()
+    
+    def test_binance_funding_rate_period(self):
+        """Test Binance Futures funding rate period."""
+        binance = BinanceFuturesKline()
+        period_info = binance.fetch_funding_rate_period('BTCUSDT')
+        
+        assert period_info is not None
+        assert 'fundingInterval' in period_info
+        assert 'fundingIntervalMinutes' in period_info
+        assert period_info['fundingInterval'] == 8
+        assert period_info['fundingIntervalMinutes'] == 480
+        assert 'timestamp' in period_info
+        assert isinstance(period_info['timestamp'], int)
+    
+    def test_binance_ethusdt_kline(self):
+        """Test Binance Futures with Ethereum futures."""
+        binance = BinanceFuturesKline()
+        df = binance.fetch_historical_kline('ETHUSDT', days=1, resolution=60)
+        
+        assert df is not None
+        if not df.empty:
+            assert len(df) > 0
+            assert 'close' in df.columns
+            # ETH prices should be positive
+            assert (df['close'] > 0).all()
+    
+    def test_binance_time_range_fetching(self):
+        """Test Binance Futures fetching specific time ranges."""
+        binance = BinanceFuturesKline()
+        
+        end_time = int(datetime.now(timezone.utc).timestamp() * 1000)
+        start_time = int((datetime.now(timezone.utc) - timedelta(hours=2)).timestamp() * 1000)
+        
+        df = binance.fetch_historical_kline(
+            'BTCUSDT',
+            days=1,
+            resolution=60,
+            start_time=start_time,
+            end_time=end_time
+        )
+        
+        assert df is not None
+        if not df.empty:
+            # Check time is within range
+            min_time = df['time'].min()
+            max_time = df['time'].max()
+            
+            # Convert to timestamp in milliseconds for comparison
+            min_ts = int(pd.Timestamp(min_time).timestamp() * 1000)
+            max_ts = int(pd.Timestamp(max_time).timestamp() * 1000)
+            
+            assert min_ts >= start_time - 60000  # Allow 1 min tolerance
+            assert max_ts <= end_time + 60000  # Allow 1 min tolerance
+
+
+
     """Test Hyperliquid exchange API endpoints."""
     
     def test_hyperliquid_connection(self):

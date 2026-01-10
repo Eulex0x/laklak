@@ -2,6 +2,10 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta, timezone
 import os
+import logging
+
+# Set up logger with suppression for non-critical errors
+logger = logging.getLogger('hyperliquid')
 
 
 class HyperliquidKline:
@@ -42,7 +46,7 @@ class HyperliquidKline:
                 "note": "Hyperliquid uses fixed 8-hour funding rate period"
             }
         except Exception as e:
-            print(f"Error fetching funding rate period for {coin}: {e}")
+            logger.debug(f"Error fetching funding rate period for {coin}: {e}")
             return {
                 "coin": coin,
                 "fundingInterval": 8,
@@ -127,13 +131,23 @@ class HyperliquidKline:
             return df
             
         except requests.exceptions.Timeout:
-            print(f"Timeout fetching funding rate for {coin} from Hyperliquid")
+            logger.debug(f"Timeout fetching funding rate for {coin} from Hyperliquid")
             return pd.DataFrame()
         except requests.exceptions.RequestException as e:
-            print(f"Failed to fetch funding rate for {coin} from Hyperliquid: {e}")
+            error_msg = str(e).lower()
+            # Check if it's a symbol not found error
+            if "invalid" in error_msg or "not found" in error_msg or "500" in error_msg:
+                logger.debug(f"Symbol {coin} not available on Hyperliquid (skipping)")
+            else:
+                logger.debug(f"Failed to fetch funding rate for {coin} from Hyperliquid: {e}")
             return pd.DataFrame()
         except Exception as e:
-            print(f"Error processing funding rate for {coin} from Hyperliquid: {e}")
+            error_msg = str(e).lower()
+            # Check if it's a symbol not found error
+            if "invalid" in error_msg or "not found" in error_msg:
+                logger.debug(f"Symbol {coin} not available on Hyperliquid (skipping)")
+            else:
+                logger.debug(f"Error processing funding rate for {coin} from Hyperliquid: {e}")
             return pd.DataFrame()
 
     @staticmethod
@@ -172,7 +186,7 @@ class HyperliquidKline:
             }
             
         except Exception as e:
-            print(f"Error getting latest funding rate for {coin}: {e}")
+            logger.debug(f"Error getting latest funding rate for {coin}: {e}")
             return {
                 'coin': coin,
                 'fundingRate': None,

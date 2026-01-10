@@ -2,7 +2,10 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta, timezone
 import os
+import logging
 from influxdb import InfluxDBClient
+
+logger = logging.getLogger('bitunix')
 
 
 class BitunixKline:
@@ -62,7 +65,11 @@ class BitunixKline:
             # Check response status
             if result.get("code") != 0:
                 error_msg = result.get("msg", "Unknown error")
-                print(f"API error for {currency}: {error_msg}")
+                error_msg_lower = error_msg.lower()
+                if "symbol invalid" in error_msg_lower or "not found" in error_msg_lower or "invalid symbol" in error_msg_lower:
+                    logger.debug(f"Symbol {currency} not available on Bitunix (skipping)")
+                else:
+                    logger.warning(f"API error for {currency} funding rate: {error_msg}")
                 return pd.DataFrame()
             
             # Extract kline data
@@ -330,7 +337,11 @@ class BitunixKline:
             # Check response status
             if result.get("code") != 0:
                 error_msg = result.get("msg", "Unknown error")
-                print(f"API error for {currency} funding rate: {error_msg}")
+                error_msg_lower = error_msg.lower()
+                if "symbol invalid" in error_msg_lower or "not found" in error_msg_lower or "invalid symbol" in error_msg_lower:
+                    logger.debug(f"Symbol {currency} not available on Bitunix (skipping)")
+                else:
+                    logger.warning(f"API error for {currency} funding rate: {error_msg}")
                 return pd.DataFrame()
             
             # Extract funding rate data

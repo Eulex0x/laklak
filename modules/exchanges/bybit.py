@@ -2,6 +2,9 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta, timezone
 import os
+import logging
+
+logger = logging.getLogger('bybit')
 
 class BybitKline:
     BASE_URL = os.getenv('BYBIT_API_URL', "https://api.bybit.com")
@@ -97,7 +100,11 @@ class BybitKline:
                 result = response.json()
                 
                 if result.get("retCode") != 0:
-                    print(f"API error for {currency} funding rate: {result.get('retMsg', 'Unknown error')}")
+                    error_msg = result.get('retMsg', 'Unknown error').lower()
+                    if "symbol invalid" in error_msg or "not found" in error_msg or "invalid symbol" in error_msg:
+                        logger.debug(f"Symbol {currency} not available on Bybit (skipping)")
+                    else:
+                        logger.warning(f"API error for {currency} funding rate: {result.get('retMsg', 'Unknown error')}")
                     break
                 
                 if "result" not in result or "list" not in result["result"]:
