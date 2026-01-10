@@ -21,6 +21,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+from modules.exchanges.binance import BinanceFuturesKline
 from modules.exchanges.bybit import BybitKline
 from modules.exchanges.bitunix import BitunixKline
 from modules.exchanges.hyperliquid import HyperliquidKline
@@ -108,6 +109,7 @@ class DataCollector:
         """
         self.logger = logger
         self.batch_size = batch_size
+        self.binance = BinanceFuturesKline()
         self.bybit = BybitKline()
         self.bitunix = BitunixKline()
         self.hyperliquid = HyperliquidKline()
@@ -170,8 +172,39 @@ class DataCollector:
             bool: True if at least one data source was successful, False otherwise
         """
         config = get_config()
-        success_flags = {"bybit": False, "bitunix": False, "deribit": False, "yfinance": False}
+        success_flags = {"binance": False, "bybit": False, "bitunix": False, "deribit": False, "yfinance": False}
         total_valid_points = 0
+        
+        # Fetch Binance Kline Data (only if specified in ohlc_exchanges)
+        if "binance" in ohlc_exchanges:
+            try:
+                self.logger.debug(f"Fetching Binance kline data for {symbol}")
+                
+                df_binance = self.binance.fetch_historical_kline(
+                    symbol=symbol,
+                    days=config["DAYS"],
+                    resolution=config["RESOLUTION_KLINE"]
+                )
+                
+                if not df_binance.empty:
+                    # Write to InfluxDB with exchange-specific symbol
+                    db_symbol = f"{symbol}"
+                    valid_points = self.writer.write_market_data(
+                        df=df_binance,
+                        symbol=db_symbol,
+                        exchange="Binance",
+                        data_type="kline"
+                    )
+                    
+                    if valid_points > 0:
+                        total_valid_points += valid_points
+                        success_flags["binance"] = True
+                        self.logger.info(f"Binance: Successfully processed {valid_points} kline points for {db_symbol}")
+                else:
+                    self.logger.debug(f"Binance: No kline data returned for {symbol}")
+            
+            except Exception as e:
+                self.logger.debug(f"Binance: Failed to fetch kline for {symbol}: {e}")
         
         # Fetch Bybit Kline Data (only if specified in ohlc_exchanges)
         if "bybit" in ohlc_exchanges:
