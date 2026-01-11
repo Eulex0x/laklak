@@ -223,7 +223,7 @@ class DataCollector:
                     valid_points = self.writer.write_market_data(
                         df=df_bybit,
                         symbol=db_symbol,
-                        exchange="Bybit",
+                        exchange="Binance",
                         data_type="kline"
                     )
                     
@@ -318,7 +318,7 @@ class DataCollector:
                     valid_points = self.writer.write_market_data(
                         df=df_bitunix,
                         symbol=db_symbol,
-                        exchange="Bitunix",
+                        exchange="Binance",
                         data_type="kline"
                     )
                     
@@ -531,7 +531,7 @@ class DataCollector:
                     valid_points = self.writer.write_market_data(
                         df=df_yfinance,
                         symbol=db_symbol,
-                        exchange="YFinance",
+                        exchange="Binance",
                         data_type="kline"
                     )
                     

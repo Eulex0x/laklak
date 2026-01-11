@@ -1,7 +1,7 @@
 """
 Historical Data Backfill Script for InfluxDB
 
-This script fetches historical 1-minute OHLCV data for multiple coins from Bybit
+This script fetches historical 1-minute OHLCV data for multiple coins from Binance
 and stores it in InfluxDB. It handles the API limit of 1000 points by fetching
 data in smaller date ranges.
 
@@ -23,6 +23,7 @@ import os
 import time
 from datetime import datetime, timedelta
 
+from modules.exchanges.binance import BinanceFuturesKline
 from modules.exchanges.bybit import BybitKline
 from modules.exchanges.yfinance import YFinanceKline
 from modules.exchanges.bitunix import BitunixKline
@@ -41,21 +42,21 @@ BACKFILL_CONFIG = {
     "TOTAL_DAYS": 90,                   # Total days to backfill (90 days = 3 months)
                                          # This will be split into chunks to respect 1000 point limit
     
-    "CHUNK_SIZE_DAYS": 0.7,             # Days per API request (smaller = more requests, ~1000 points)
-                                         # For 1-minute data: 0.7 days ≈ 1000 minutes ≈ 1000 points
+    "CHUNK_SIZE_DAYS": 42,             # Days per API request (smaller = more requests, ~1000 points)
+                                         # For 1-hour data: 42 days ≈ 1000 hours ≈ 1000 points
                                          # Adjust if needed based on your interval
     
     # ═══════════════════════════════════════════════════════════════════════
     # Timeframe/Interval Settings
     # ═══════════════════════════════════════════════════════════════════════
-    "BYBIT_RESOLUTION": "60",            # Bybit timeframe (MUST be "1" for 1-minute data)
+    "BYBIT_RESOLUTION": "60",            # Bybit timeframe (MUST be "60" for 1-hour data)
                                         #   "1"  = 1 minute (for backfill)
                                         #   "5"  = 5 minutes
                                         #   "15" = 15 minutes
                                         #   "60" = 1 hour
                                         #   "D"  = 1 day (Daily)
     
-    "YFINANCE_INTERVAL": "1m",          # YFinance interval:
+    "YFINANCE_INTERVAL": "1h",          # YFinance interval:
                                         #   "1m"  = 1 minute
                                         #   "5m"  = 5 minutes
                                         #   "15m" = 15 minutes
@@ -66,9 +67,10 @@ BACKFILL_CONFIG = {
     # Exchange Settings - Enable/Disable exchanges to backfill
     # ═══════════════════════════════════════════════════════════════════════
     "ENABLED_EXCHANGES": {
-        "bybit": True,                  # Primary exchange (recommended: always enabled)
-        "yfinance": True,               # Yahoo Finance (only for BTC, ETH, XRP, SOL)
-        "bitunix": True,                # Alternative exchange
+        "binance": True,                # Binance exchange
+        "bybit": False,                 # Bybit exchange
+        "yfinance": False,              # Yahoo Finance
+        "bitunix": False,               # Bitunix exchange
         "deribit": False,               # Deribit DVOL data (disable to skip volatility index)
     },
     
@@ -164,6 +166,7 @@ class HistoricalBackfill:
         self.chunk_size_days = chunk_size_days
         self.bybit_resolution = bybit_resolution
         self.yfinance_interval = yfinance_interval
+        self.binance = BinanceFuturesKline()
         self.bybit = BybitKline()
         self.bitunix = BitunixKline()
         self.deribit = DeribitDVOL()

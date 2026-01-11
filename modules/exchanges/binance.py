@@ -18,6 +18,7 @@ class BinanceFuturesKline:
     
     # Mapping of interval strings to their values
     INTERVAL_MAP = {
+        "1": "1m",      # Support for integer minutes
         "1m": "1m",
         "3m": "3m",
         "5m": "5m",
