@@ -20,6 +20,12 @@
 # Sorted by Market Capitalization (Largest First)
 
 symbol,ohlc_exchanges,funding_rate_exchanges
+BTC=F,yfinance,
+ETH=F,yfinance,
+XRP=F,yfinance,
+SOL=F,yfinance,
+^GSPC,yfinance,
+^NDX,yfinance,
 BTCUSDT,binance,binance+bybit+bitunix+hyperliquid
 ETHUSDT,binance,binance+bybit+bitunix+hyperliquid
 BNBUSDT,binance,binance+bybit+bitunix+hyperliquid
@@ -585,10 +591,4 @@ ZRXUSDT,binance,binance+bybit+bitunix+hyperliquid
 42USDT,binance,binance+bybit+bitunix+hyperliquid
 4USDT,binance,binance+bybit+bitunix+hyperliquid
 A2ZUSDT,binance,binance+bybit+bitunix+hyperliquid
-BTC=F,yfinance,
-ETH=F,yfinance,
-XRP=F,yfinance,
-SOL=F,yfinance,
-^GSPC,yfinance,
-^NDX,yfinance,
 币安人生USDT,binance,binance+bybit+bitunix+hyperliquid

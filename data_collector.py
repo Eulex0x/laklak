@@ -148,7 +148,7 @@ class DataCollector:
             configs = parse_csv_assets(assets_file)
             assets = [
                 (symbol, config.ohlc_exchanges, config.funding_rate_exchanges)
-                for symbol, config in sorted(configs.items())
+                for symbol, config in configs.items()
             ]
             
             self.logger.info(f"Loaded {len(assets)} assets from {assets_file}")
@@ -524,14 +524,13 @@ class DataCollector:
                     days=config["DAYS"],
                     interval=yf_interval
                 )
-                
                 if not df_yfinance.empty:
                     # Write to InfluxDB with exchange-specific symbol
                     db_symbol = f"{symbol}"
                     valid_points = self.writer.write_market_data(
                         df=df_yfinance,
                         symbol=db_symbol,
-                        exchange="Binance",
+                        exchange="YFinance",
                         data_type="kline"
                     )
                     
