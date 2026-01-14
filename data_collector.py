@@ -480,8 +480,7 @@ class DataCollector:
                     currency=base_currency,
                     days=config["DAYS"],
                     resolution=deribit_resolution
-                )
-                
+                ) 
                 if not df_deribit.empty:
                     # Write to InfluxDB with data-type specific symbol
                     # DVOL is volatility, not price, so use descriptive naming

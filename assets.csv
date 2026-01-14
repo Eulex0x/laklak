@@ -26,8 +26,9 @@ XRP=F,yfinance,
 SOL=F,yfinance,
 ^GSPC,yfinance,
 ^NDX,yfinance,
-BTCUSDT,binance,binance+bybit+bitunix+hyperliquid
-ETHUSDT,binance,binance+bybit+bitunix+hyperliquid
+GC=F,yfinance,
+BTCUSDT,binance+deribit,binance+bybit+bitunix+hyperliquid
+ETHUSDT,binance+deribit,binance+bybit+bitunix+hyperliquid
 BNBUSDT,binance,binance+bybit+bitunix+hyperliquid
 SOLUSDT,binance,binance+bybit+bitunix+hyperliquid
 XRPUSDT,binance,binance+bybit+bitunix+hyperliquid
@@ -49,8 +50,6 @@ XLMUSDT,binance,binance+bybit+bitunix+hyperliquid
 IOTAUSDT,binance,binance+bybit+bitunix+hyperliquid
 SNXUSDT,binance,binance+bybit+bitunix+hyperliquid
 CRVUSDT,binance,binance+bybit+bitunix+hyperliquid
-MKRUSDT,binance,binance+bybit+bitunix+hyperliquid
-APUSDT,binance,binance+bybit+bitunix+hyperliquid
 JUPUSDT,binance,binance+bybit+bitunix+hyperliquid
 RAYSOLUSDT,binance,binance+bybit+bitunix+hyperliquid
 AAVEUSDT,binance,binance+bybit+bitunix+hyperliquid
@@ -78,7 +77,6 @@ STXUSDT,binance,binance+bybit+bitunix+hyperliquid
 TRBUSDT,binance,binance+bybit+bitunix+hyperliquid
 FLOWUSDT,binance,binance+bybit+bitunix+hyperliquid
 RONINUSDT,binance,binance+bybit+bitunix+hyperliquid
-NUMUSDT,binance,binance+bybit+bitunix+hyperliquid
 MASKUSDT,binance,binance+bybit+bitunix+hyperliquid
 GMTUSDT,binance,binance+bybit+bitunix+hyperliquid
 GMMUSDT,binance,binance+bybit+bitunix+hyperliquid
@@ -95,7 +93,6 @@ SEIUSDT,binance,binance+bybit+bitunix+hyperliquid
 HEMIUSDT,binance,binance+bybit+bitunix+hyperliquid
 EIGENUSDT,binance,binance+bybit+bitunix+hyperliquid
 ICPUSDT,binance,binance+bybit+bitunix+hyperliquid
-GALUSDT,binance,binance+bybit+bitunix+hyperliquid
 TAOUSDT,binance,binance+bybit+bitunix+hyperliquid
 DYDXUSDT,binance,binance+bybit+bitunix+hyperliquid
 PENDLEUSDT,binance,binance+bybit+bitunix+hyperliquid
@@ -112,21 +109,19 @@ METISUSDT,binance,binance+bybit+bitunix+hyperliquid
 EGLDUSDT,binance,binance+bybit+bitunix+hyperliquid
 AXLUSDT,binance,binance+bybit+bitunix+hyperliquid
 ENJUSDT,binance,binance+bybit+bitunix+hyperliquid
-SANDSUSDT,binance,binance+bybit+bitunix+hyperliquid
+SANDUSDT,binance,binance+bybit+bitunix+hyperliquid
 MANAUSDT,binance,binance+bybit+bitunix+hyperliquid
 GUNUSDT,binance,binance+bybit+bitunix+hyperliquid
 STORJUSDT,binance,binance+bybit+bitunix+hyperliquid
 PEOPLEUSDT,binance,binance+bybit+bitunix+hyperliquid
 CAKEUSDT,binance,binance+bybit+bitunix+hyperliquid
 DFUSDT,binance,binance+bybit+bitunix+hyperliquid
-EDOUSDT,binance,binance+bybit+bitunix+hyperliquid
 SLPUSDT,binance,binance+bybit+bitunix+hyperliquid
 XMRUSDT,binance,binance+bybit+bitunix+hyperliquid
 RVNUSDT,binance,binance+bybit+bitunix+hyperliquid
 AXSUSDT,binance,binance+bybit+bitunix+hyperliquid
 GHSTUSDT,binance,binance+bybit+bitunix+hyperliquid
 JASMYUSDT,binance,binance+bybit+bitunix+hyperliquid
-ANTUSDT,binance,binance+bybit+bitunix+hyperliquid
 OXTUSDT,binance,binance+bybit+bitunix+hyperliquid
 HOTUSDT,binance,binance+bybit+bitunix+hyperliquid
 ARKUSDT,binance,binance+bybit+bitunix+hyperliquid
@@ -138,11 +133,8 @@ NKNUSDT,binance,binance+bybit+bitunix+hyperliquid
 ASTRUSDT,binance,binance+bybit+bitunix+hyperliquid
 STEEM USDT,binance,binance+bybit+bitunix+hyperliquid
 IOTXUSDT,binance,binance+bybit+bitunix+hyperliquid
-NMSUSDT,binance,binance+bybit+bitunix+hyperliquid
-RUNUSDT,binance,binance+bybit+bitunix+hyperliquid
 RNDRERE,binance,binance+bybit+bitunix+hyperliquid
 API3USDT,binance,binance+bybit+bitunix+hyperliquid
-LPLOUTUSDT,binance,binance+bybit+bitunix+hyperliquid
 CTSIUSDT,binance,binance+bybit+bitunix+hyperliquid
 DENTUSDT,binance,binance+bybit+bitunix+hyperliquid
 ONGUSDT,binance,binance+bybit+bitunix+hyperliquid
@@ -154,13 +146,9 @@ ZENUSDT,binance,binance+bybit+bitunix+hyperliquid
 COTIUSDT,binance,binance+bybit+bitunix+hyperliquid
 SCRTUSDT,binance,binance+bybit+bitunix+hyperliquid
 BELUSDT,binance,binance+bybit+bitunix+hyperliquid
-ETHTEXASUSDT,binance,binance+bybit+bitunix+hyperliquid
 GLD,binance,binance+bybit+bitunix+hyperliquid
 SKYUSDT,binance,binance+bybit+bitunix+hyperliquid
-KGNOUSDT,binance,binance+bybit+bitunix+hyperliquid
-EVASUSDT,binance,binance+bybit+bitunix+hyperliquid
-USGUSDT,binance,binance+bybit+bitunix+hyperliquid
-AI USDT,binance,binance+bybit+bitunix+hyperliquid
+AIUSDT,binance,binance+bybit+bitunix+hyperliquid
 GOATUSDT,binance,binance+bybit+bitunix+hyperliquid
 POPCATUSDT,binance,binance+bybit+bitunix+hyperliquid
 0GUSDT,binance,binance+bybit+bitunix+hyperliquid
