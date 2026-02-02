@@ -206,6 +206,63 @@ class DataCollector:
             except Exception as e:
                 self.logger.debug(f"Binance: Failed to fetch kline for {symbol}: {e}")
         
+        # Fetch Binance Funding Rate Period (cache it first before fetching funding rate)
+        if "binance" in funding_rate_exchanges:
+            try:
+                self.logger.debug(f"Fetching Binance funding rate period for {symbol}")
+                
+                period_info = self.binance.fetch_funding_rate_period(symbol)
+                if period_info and "fundingInterval" in period_info:
+                    period_hours = period_info["fundingInterval"]
+                    period_str = str(period_hours)
+                    self.writer.set_funding_period(
+                        symbol=symbol,
+                        exchange="binance",
+                        period=period_str
+                    )
+                    self.logger.debug(f"Binance: Funding rate period for {symbol}: {period_str} hours")
+                else:
+                    self.logger.debug(f"Binance: Could not determine funding rate period for {symbol}")
+            
+            except Exception as e:
+                self.logger.debug(f"Binance: Failed to process funding rate period for {symbol}: {e}")
+            
+            # Now fetch Binance Funding Rate Data
+            try:
+                self.logger.debug(f"Fetching Binance funding rate for {symbol}")
+                
+                df_funding_binance = self.binance.fetch_funding_rate(
+                    symbol=symbol,
+                    days=config["DAYS"]
+                )
+                
+                if not df_funding_binance.empty:
+                    db_symbol = f"{symbol}"
+                    period = self.writer.get_funding_period(symbol, "binance")
+                    valid_points = self.writer.write_market_data(
+                        df=df_funding_binance,
+                        symbol=db_symbol,
+                        exchange="Binance",
+                        data_type="funding_rate",
+                        period=period
+                    )
+                    
+                    if valid_points > 0:
+                        total_valid_points += valid_points
+                        success_flags["binance"] = True
+                        self.logger.info(f"Binance: Successfully processed {valid_points} funding rate points for {db_symbol}")
+                    else:
+                        self.logger.debug(f"Binance: No valid funding rate data points for {symbol}")
+                else:
+                    self.logger.debug(f"Binance: No funding rate data returned for {symbol}")
+            
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "invalid symbol" in error_msg or "not found" in error_msg or "unknown symbol" in error_msg:
+                    self.logger.debug(f"Binance: Symbol {symbol} not available on Binance (skipping funding rate)")
+                else:
+                    self.logger.debug(f"Binance: Failed to process funding rate for {symbol}: {e}")
+        
         # Fetch Bybit Kline Data (only if specified in ohlc_exchanges)
         if "bybit" in ohlc_exchanges:
             try:
@@ -223,7 +280,7 @@ class DataCollector:
                     valid_points = self.writer.write_market_data(
                         df=df_bybit,
                         symbol=db_symbol,
-                        exchange="Binance",
+                        exchange="Bybit",
                         data_type="kline"
                     )
                     
@@ -244,7 +301,6 @@ class DataCollector:
                 self.logger.debug(f"Fetching Bybit funding rate period for {symbol}")
                 
                 period_info = self.bybit.fetch_funding_rate_period(symbol)
-                
                 if period_info and "fundingInterval" in period_info:
                     period_hours = period_info["fundingInterval"]
                     # Use period as string number only (e.g., "8")
@@ -318,7 +374,7 @@ class DataCollector:
                     valid_points = self.writer.write_market_data(
                         df=df_bitunix,
                         symbol=db_symbol,
-                        exchange="Binance",
+                        exchange="Bitunix",
                         data_type="kline"
                     )
                     

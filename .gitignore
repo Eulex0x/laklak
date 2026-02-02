@@ -205,3 +205,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Private documentation and AI instructions (keep local only)
+docs/
+.github/copilot-instructions.md
+.github/README.md

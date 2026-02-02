@@ -1,5 +1,5 @@
 import pandas as pd
-import requests
+import cloudscraper
 from datetime import datetime, timedelta, timezone
 import os
 import logging
@@ -11,8 +11,17 @@ logger = logging.getLogger('bitunix')
 class BitunixKline:
     BASE_URL = os.getenv('BITUNIX_API_URL', "https://fapi.bitunix.com")
     
-    @staticmethod
-    def fetch_historical_kline(currency, days, resolution, start_time=None, end_time=None) -> pd.DataFrame:
+    def __init__(self):
+        """Initialize with cloudscraper to bypass Cloudflare protection."""
+        self.scraper = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'linux',
+                'desktop': True
+            }
+        )
+    
+    def fetch_historical_kline(self, currency, days, resolution, start_time=None, end_time=None) -> pd.DataFrame:
         """
         Fetch historical kline/candlestick data from Bitunix.
         
@@ -58,7 +67,7 @@ class BitunixKline:
                 "interval": interval
             }
             
-            response = requests.get(url, params=params, timeout=10)
+            response = self.scraper.get(url, params=params, timeout=10)
             response.raise_for_status()
             result = response.json()
             
@@ -115,18 +124,14 @@ class BitunixKline:
             
             return df
             
-        except requests.exceptions.Timeout:
-            print(f"Timeout fetching kline data for {currency} from Bitunix")
-            return pd.DataFrame()
-        except requests.exceptions.RequestException as e:
-            print(f"Failed to fetch kline data for {currency} from Bitunix: {e}")
+        except cloudscraper.exceptions.CloudflareChallengeError as e:
+            print(f"Cloudflare challenge failed for {currency}: {e}")
             return pd.DataFrame()
         except Exception as e:
             print(f"Error processing kline data for {currency} from Bitunix: {e}")
             return pd.DataFrame()
     
-    @staticmethod
-    def fetch_funding_rate_period(currency: str, days: int = 7) -> dict:
+    def fetch_funding_rate_period(self, currency: str, days: int = 7) -> dict:
         """
         Get the funding rate settlement period for Bitunix from the internal API.
         
@@ -148,12 +153,8 @@ class BitunixKline:
         try:
             # First try the internal API endpoint
             api_url = "https://api.bitunix.com/futures/futures/market/setting/list"
-            headers = {
-                "accept": "*/*",
-                "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
-            }
             
-            response = requests.get(api_url, headers=headers, timeout=10)
+            response = self.scraper.get(api_url, timeout=10)
             response.raise_for_status()
             result = response.json()
             
@@ -310,8 +311,7 @@ class BitunixKline:
                 "note": f"Error: {str(e)[:50]}"
             }
     
-    @staticmethod
-    def fetch_funding_rate(currency) -> pd.DataFrame:
+    def fetch_funding_rate(self, currency) -> pd.DataFrame:
         """
         Fetch current funding rate for a perpetual contract from Bitunix.
         
@@ -330,7 +330,7 @@ class BitunixKline:
                 "symbol": currency
             }
             
-            response = requests.get(url, params=params, timeout=10)
+            response = self.scraper.get(url, params=params, timeout=10)
             response.raise_for_status()
             result = response.json()
             
@@ -367,18 +367,14 @@ class BitunixKline:
             
             return df
             
-        except requests.exceptions.Timeout:
-            print(f"Timeout fetching funding rate for {currency} from Bitunix")
-            return pd.DataFrame()
-        except requests.exceptions.RequestException as e:
-            print(f"Failed to fetch funding rate for {currency} from Bitunix: {e}")
+        except cloudscraper.exceptions.CloudflareChallengeError as e:
+            print(f"Cloudflare challenge failed for {currency}: {e}")
             return pd.DataFrame()
         except Exception as e:
             print(f"Error processing funding rate for {currency} from Bitunix: {e}")
             return pd.DataFrame()
     
-    @staticmethod
-    def get_latest_funding_rate(currency) -> dict:
+    def get_latest_funding_rate(self, currency) -> dict:
         """
         Get the most recent funding rate and market data for a symbol.
         
@@ -400,7 +396,7 @@ class BitunixKline:
                 "symbol": currency
             }
             
-            response = requests.get(url, params=params, timeout=10)
+            response = self.scraper.get(url, params=params, timeout=10)
             response.raise_for_status()
             result = response.json()
             
@@ -417,6 +413,9 @@ class BitunixKline:
                 'timestamp': datetime.now(timezone.utc)
             }
             
+        except cloudscraper.exceptions.CloudflareChallengeError as e:
+            print(f"Cloudflare challenge failed for {currency}: {e}")
+            return {}
         except Exception as e:
             print(f"Error fetching latest funding rate for {currency} from Bitunix: {e}")
             return {}
